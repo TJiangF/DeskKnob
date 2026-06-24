@@ -2,6 +2,10 @@
 #include "MenuManager.h"
 #include <string>
 
+// Global variable definitions
+CRGB leds[NUM_LEDS];
+CRGBPalette16 currentPalette;
+TBlendType currentBlending;
 
 MenuManager::MenuManager(DisplayManager& _display, MotorManager& _motor)
     : display(_display), motor(_motor), currentIndex(0), isMainPage(true) 

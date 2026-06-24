@@ -8,9 +8,6 @@
 #include <math.h>
 #include "ImageManager.h"
 
-
-#define DEG_TO_RAD (M_PI / 180.0f) // 将角度转换为弧度的常量
-
 // lv_obj_t* DisplayManager::logos[8] = {nullptr}; // 初始化数组为nullptr
 
 

@@ -3,7 +3,6 @@
 #include <TFT_eSPI.h>
 #include <SimpleFOC.h>
 #include "HX710AB.h"
-#include "BleKeyboard.h"
 #include "FastLED.h"
 
 #include "DisplayManager.h" 
