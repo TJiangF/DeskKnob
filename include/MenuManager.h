@@ -52,8 +52,6 @@ public:
     void SetupPurpleAndGreenPalette();
 
 private:
-    const TProgmemHSVPalette16 myRedWhiteBluePalette_p;
-
     DisplayManager& display;
     MotorManager& motor;
     // std::vector<MenuItem> rootMenu;

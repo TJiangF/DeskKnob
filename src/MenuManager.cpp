@@ -181,7 +181,7 @@ void MenuManager::SetupPurpleAndGreenPalette()
 // which is stored in PROGMEM (flash), which is almost always more
 // plentiful than RAM.  A static PROGMEM palette like this
 // takes up 64 bytes of flash.
-const TProgmemPalette16 MenuManager::myRedWhiteBluePalette_p PROGMEM =
+const TProgmemPalette16 myRedWhiteBluePalette_p PROGMEM =
 {
     CRGB::Red,
     CRGB::Gray, // 'white' is too bright compared to red and blue
