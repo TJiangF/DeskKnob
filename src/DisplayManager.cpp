@@ -106,7 +106,7 @@ void DisplayManager::updateMenuDisplay(const std::vector<MenuItem>& menu, int se
     if (menu.empty() || selectedIndex >= (int)menu.size()) return;
     if (lv_scr_act() != dial) {
         lv_obj_set_pos(dial, 0, 0);
-        lv_disp_load_scr(dial);
+        lv_scr_load(dial);
     }
     // 更新圆形表盘的图标和标签
     int total_items = std::min((int)menu.size(), 8); // 最多显示8个菜单项
@@ -175,7 +175,7 @@ void DisplayManager::initVolumeDisplay(){
 void DisplayManager::updateVolumeDisplay(int volumestatus){
     if (lv_scr_act() != dial) {
         lv_obj_set_pos(dial, 0, 0);
-        lv_disp_load_scr(dial);
+        lv_scr_load(dial);
     }
 
     for(int i = 0; i < 4; i++){
