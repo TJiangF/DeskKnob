@@ -1,23 +1,28 @@
 #ifndef IMAGE_RESOURCES_H
 #define IMAGE_RESOURCES_H
 
-#include <lvgl.h>
+// All icons are PNG files in theLittleFS partition, mounted at /littlefs.
+// LVGL POSIX FS driver uses drive letter 'L', so paths look like "L:/music.png".
+// To add a new icon: drop the PNG into data/ directory, then run:
+//     pio run -t uploadfs
+// To use it in code: declare `extern const char* Image_<name>;` here and define
+// it in ImageManager.cpp.
 
-extern const lv_img_dsc_t Image_music;
-extern const lv_img_dsc_t Image_settings;
-extern const lv_img_dsc_t Image_video;
-extern const lv_img_dsc_t Image_rotation;
-extern const lv_img_dsc_t Image_play;
-extern const lv_img_dsc_t Image_calc;
-extern const lv_img_dsc_t Image_pause;
-extern const lv_img_dsc_t Image_track;
-extern const lv_img_dsc_t Image_back;
-extern const lv_img_dsc_t Image_explorer;
-extern const lv_img_dsc_t Image_tools;
-extern const lv_img_dsc_t Image_volume;
-extern const lv_img_dsc_t Image_volumeup;
-extern const lv_img_dsc_t Image_volumedown;
-extern const lv_img_dsc_t Image_volumemute;
-extern const lv_img_dsc_t Image_volume120;
+extern const char* Image_music;
+extern const char* Image_settings;
+extern const char* Image_video;
+extern const char* Image_rotation;
+extern const char* Image_play;
+extern const char* Image_calc;
+extern const char* Image_pause;
+extern const char* Image_track;
+extern const char* Image_back;
+extern const char* Image_explorer;
+extern const char* Image_tools;
+extern const char* Image_volume;
+extern const char* Image_volumeup;
+extern const char* Image_volumedown;
+extern const char* Image_volumemute;
+extern const char* Image_volume120;
 
 #endif // IMAGE_RESOURCES_H

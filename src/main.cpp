@@ -2,6 +2,7 @@
 #include <lvgl.h>
 #include <TFT_eSPI.h>
 #include <SimpleFOC.h>
+#include <LittleFS.h>
 #include "HX710AB.h"
 #include "DisplayManager.h"
 #include "ImageManager.h"
@@ -52,25 +53,25 @@ MenuManager menuManager(display, motor_manager);
 
 // ---------- Menu ----------
 std::vector<MenuItem> rootMenu = {
-    MenuItem("Music", &Image_music, {
-        MenuItem("Volume", &Image_volume),
-        MenuItem("Play", &Image_play),
-        MenuItem("Back", &Image_back)
+    MenuItem("Music", Image_music, {
+        MenuItem("Volume", Image_volume),
+        MenuItem("Play", Image_play),
+        MenuItem("Back", Image_back)
     }),
-    MenuItem("Video", &Image_video, {
-        MenuItem("Track", &Image_track),
-        MenuItem("Back", &Image_back)
+    MenuItem("Video", Image_video, {
+        MenuItem("Track", Image_track),
+        MenuItem("Back", Image_back)
     }),
-    MenuItem("Tools", &Image_tools, {
-        MenuItem("Calculator", &Image_calc),
-        MenuItem("Explorer", &Image_explorer),
-        MenuItem("Rotation", &Image_rotation),
-        MenuItem("Back", &Image_back)
+    MenuItem("Tools", Image_tools, {
+        MenuItem("Calculator", Image_calc),
+        MenuItem("Explorer", Image_explorer),
+        MenuItem("Rotation", Image_rotation),
+        MenuItem("Back", Image_back)
     }),
-    MenuItem("Settings", &Image_settings, {
-        MenuItem("Option1", &Image_settings),
-        MenuItem("Option2", &Image_settings),
-        MenuItem("Back", &Image_back)
+    MenuItem("Settings", Image_settings, {
+        MenuItem("Option1", Image_settings),
+        MenuItem("Option2", Image_settings),
+        MenuItem("Back", Image_back)
     })
 };
 MenuItem* currentMenu = nullptr;
@@ -297,6 +298,22 @@ void setup() {
   Serial.println("tft.begin OK");
 
   lv_init();
+
+  // Mount LittleFS partition containing the PNG icons (flashed via `pio run -t uploadfs`)
+  if (!LittleFS.begin(true)) {
+    Serial.println("ERR: LittleFS mount failed - run 'pio run -t uploadfs' first");
+  } else {
+    Serial.printf("LittleFS OK: %u bytes used / %u total\n",
+                  (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes());
+    // List '/' so we can verify the icons are present in the serial log
+    File root = LittleFS.open("/");
+    File f = root.openNextFile();
+    while (f) {
+      Serial.printf("  fs: %s (%u bytes)\n", f.name(), (unsigned)f.size());
+      f = root.openNextFile();
+    }
+  }
+
   lv_disp_draw_buf_init(&draw_buf, buf, NULL, screenWidth * 50);
   static lv_disp_drv_t disp_drv;
   lv_disp_drv_init(&disp_drv);

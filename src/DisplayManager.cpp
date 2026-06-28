@@ -184,22 +184,22 @@ void DisplayManager::updateVolumeDisplay(int volumestatus){
         // else{
             lv_obj_clear_flag(volumelogos, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(backlogo, LV_OBJ_FLAG_HIDDEN);
-            lv_img_set_src(backlogo, &Image_back);
+            lv_img_set_src(backlogo, Image_back);
             switch(volumestatus){
                 case 0:
-                    lv_img_set_src(volumelogos, &Image_volume120);
+                    lv_img_set_src(volumelogos, Image_volume120);
                     lv_label_set_text(center_label, "Volume Tunning");
                     break;
                 case 1:
-                    lv_img_set_src(volumelogos, &Image_volumeup);
+                    lv_img_set_src(volumelogos, Image_volumeup);
                     lv_label_set_text(center_label, "Volume Up ++");
                     break;
                 case 2:
-                    lv_img_set_src(volumelogos, &Image_volumedown);
+                    lv_img_set_src(volumelogos, Image_volumedown);
                     lv_label_set_text(center_label, "Volume Down --");
                     break;
                 case 3:
-                    lv_img_set_src(volumelogos, &Image_volumemute);
+                    lv_img_set_src(volumelogos, Image_volumemute);
                     lv_label_set_text(center_label, "Volume Muted");
                     break;
             }

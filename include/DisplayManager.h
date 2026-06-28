@@ -12,11 +12,11 @@
 
 struct MenuItem {
     std::string label;                 // 菜单显示文字
-    const lv_img_dsc_t* logo;          // 菜单对应的图像对象指针
+    const char* logo;                  // 菜单对应 PNG 文件的 LVGL 路径 (如 "L:/music.png")
     std::vector<MenuItem> subMenu;     // 子菜单列表
 
     // 构造函数
-    MenuItem(std::string l, const lv_img_dsc_t* lg, std::vector<MenuItem> sm = {})
+    MenuItem(std::string l, const char* lg, std::vector<MenuItem> sm = {})
         : label(std::move(l)), logo(lg), subMenu(std::move(sm)) {}
 };
 
