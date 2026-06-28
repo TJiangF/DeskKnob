@@ -278,7 +278,8 @@ void osTask(void *pvParameters) {
       default: break;
     }
 
-    lv_timer_handler();
+    uint32_t t = lv_timer_handler();
+    lv_refr_now(NULL);   // force synchronous refresh every cycle (bypass paused timer)
     vTaskDelay(pdMS_TO_TICKS(30));
   }
 }

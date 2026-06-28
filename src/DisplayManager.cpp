@@ -74,36 +74,40 @@ void DisplayManager::initMainMenuDisplay(const std::vector<MenuItem>& menu) {
         lv_obj_set_size(logos[i], 50, 50); // 限制图片大小
     }
 
-    lv_style_init(&logo_default_style);
-    lv_style_set_radius(&logo_default_style, 10);
-    lv_style_set_bg_opa(&logo_default_style, LV_OPA_COVER);
-    lv_style_set_bg_color(&logo_default_style, lv_palette_lighten(LV_PALETTE_GREY, 2));
+    if (!styles_inited) {
+        lv_style_init(&logo_default_style);
+        lv_style_set_radius(&logo_default_style, 10);
+        lv_style_set_bg_opa(&logo_default_style, LV_OPA_COVER);
+        lv_style_set_bg_color(&logo_default_style, lv_palette_lighten(LV_PALETTE_GREY, 2));
 
-    // 创建高亮样式
-    lv_style_init(&logo_highlight_style);
-    lv_style_set_radius(&logo_highlight_style, 10);
-    lv_style_set_bg_opa(&logo_highlight_style, LV_OPA_COVER);
-    lv_style_set_bg_color(&logo_highlight_style, lv_palette_main(LV_PALETTE_BLUE));
-    lv_style_set_shadow_width(&logo_highlight_style, 20);
-    lv_style_set_shadow_color(&logo_highlight_style, lv_palette_main(LV_PALETTE_BLUE));
-    lv_style_set_shadow_ofs_x(&logo_highlight_style, 10);
-    lv_style_set_shadow_ofs_y(&logo_highlight_style, 10);
+        // 创建高亮样式
+        lv_style_init(&logo_highlight_style);
+        lv_style_set_radius(&logo_highlight_style, 10);
+        lv_style_set_bg_opa(&logo_highlight_style, LV_OPA_COVER);
+        lv_style_set_bg_color(&logo_highlight_style, lv_palette_main(LV_PALETTE_BLUE));
+        lv_style_set_shadow_width(&logo_highlight_style, 20);
+        lv_style_set_shadow_color(&logo_highlight_style, lv_palette_main(LV_PALETTE_BLUE));
+        lv_style_set_shadow_ofs_x(&logo_highlight_style, 10);
+        lv_style_set_shadow_ofs_y(&logo_highlight_style, 10);
+
+        // 创建标签样式，并设置更大的字体
+        lv_style_init(&center_label_style);
+        lv_style_set_text_font(&center_label_style, &lv_font_montserrat_20);
+        lv_style_set_text_color(&center_label_style, lv_color_black());
+        styles_inited = true;
+    }
 
     center_label = lv_label_create(dial);
     lv_obj_align(center_label, LV_ALIGN_CENTER, 0, 0);
-
-    // 创建标签样式，并设置更大的字体
-    lv_style_init(&center_label_style);
-    lv_style_set_text_font(&center_label_style, &lv_font_montserrat_20);  // 设置更大的字体（例如 28pt）
-    lv_style_set_text_color(&center_label_style, lv_color_black()); // 设置字体颜色为黑色
-
-    // 应用标签样式到 center_label
     lv_obj_add_style(center_label, &center_label_style, 0);
 }
 
 void DisplayManager::updateMenuDisplay(const std::vector<MenuItem>& menu, int selectedIndex) {
-    if (menu.empty() || selectedIndex >= menu.size()) return;
-    lv_disp_load_scr(dial);
+    if (menu.empty() || selectedIndex >= (int)menu.size()) return;
+    if (lv_scr_act() != dial) {
+        lv_obj_set_pos(dial, 0, 0);
+        lv_disp_load_scr(dial);
+    }
     // 更新圆形表盘的图标和标签
     int total_items = std::min((int)menu.size(), 8); // 最多显示8个菜单项
     for(int i = total_items; i < 8; i++){
@@ -116,21 +120,24 @@ void DisplayManager::updateMenuDisplay(const std::vector<MenuItem>& menu, int se
         int y = 85 * sin(angle * DEG_TO_RAD);
         lv_obj_clear_flag(logos[i], LV_OBJ_FLAG_HIDDEN);
         lv_img_set_src(logos[i], menu[i].logo);
-        
-        // 清除之前应用的高亮样式
-        lv_obj_remove_style_all(logos[i]);
+
+        // 切换主样式：先移除高亮和默认样式，再按选择重新加
+        lv_obj_remove_style(logos[i], &logo_default_style, 0);
+        lv_obj_remove_style(logos[i], &logo_highlight_style, 0);
         lv_obj_align(logos[i], LV_ALIGN_CENTER, x, y);
-        // 应用默认样式
         lv_obj_add_style(logos[i], &logo_default_style, 0);
 
         // 如果是选中的 logo，应用高亮样式
         if (i == selectedIndex) {
             lv_obj_add_style(logos[i], &logo_highlight_style, 0);
         }
+        lv_obj_invalidate(logos[i]);
     }
 
     // 更新中心标签
     lv_label_set_text(center_label, menu[selectedIndex].label.c_str());
+    lv_obj_invalidate(center_label);
+    lv_obj_invalidate(dial);
 }
 
 
@@ -151,17 +158,25 @@ void DisplayManager::initVolumeDisplay(){
     center_label = lv_label_create(dial);
     lv_obj_align(center_label, LV_ALIGN_CENTER, 0, -60);
 
-    // 创建标签样式，并设置更大的字体
-    lv_style_init(&center_label_style);
-    lv_style_set_text_font(&center_label_style, &lv_font_montserrat_16);  // 设置更大的字体（例如 28pt）
-    lv_style_set_text_color(&center_label_style, lv_color_black()); // 设置字体颜色为黑色
-
-    // 应用标签样式到 center_label
+    if (!styles_inited) {
+        lv_style_init(&center_label_style);
+        lv_style_set_text_font(&center_label_style, &lv_font_montserrat_16);
+        lv_style_set_text_color(&center_label_style, lv_color_black());
+        // 也把 logo styles 初始化（volume 模式不直接用了，但保持初始化以免未定义行为）
+        lv_style_init(&logo_default_style);
+        lv_style_set_bg_color(&logo_default_style, lv_palette_lighten(LV_PALETTE_GREY, 2));
+        lv_style_init(&logo_highlight_style);
+        lv_style_set_bg_color(&logo_highlight_style, lv_palette_main(LV_PALETTE_BLUE));
+        styles_inited = true;
+    }
     lv_obj_add_style(center_label, &center_label_style, 0);
 }
 
 void DisplayManager::updateVolumeDisplay(int volumestatus){
-    lv_disp_load_scr(dial);
+    if (lv_scr_act() != dial) {
+        lv_obj_set_pos(dial, 0, 0);
+        lv_disp_load_scr(dial);
+    }
 
     for(int i = 0; i < 4; i++){
         // if(i != volumestatus)
@@ -190,7 +205,8 @@ void DisplayManager::updateVolumeDisplay(int volumestatus){
             }
         // }
     }
-    lv_img_set_zoom(backlogo, 95); 
+    lv_img_set_zoom(backlogo, 95);
+    lv_obj_invalidate(dial);
 }
 
 

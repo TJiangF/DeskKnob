@@ -72,7 +72,8 @@ private:
     lv_obj_t *center_label = nullptr;       // 中心圆内的标签
     lv_style_t logo_default_style;          // 默认样式
     lv_style_t logo_highlight_style;        // 高亮样式
-    lv_style_t center_label_style;        // 高亮样式
+    lv_style_t center_label_style;           // 中央标签样式
+    bool styles_inited = false;              // 防止 lv_style_init 重复调用导致内存破坏
 
     // static lv_obj_t *logos[8];         // Logo 图标对象
     // lv_obj_t* center_circle;
