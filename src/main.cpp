@@ -1,8 +1,10 @@
 #include <Arduino.h>
 #include <lvgl.h>
 #include <TFT_eSPI.h>
+#include <SimpleFOC.h>
 #include "DisplayManager.h"
 #include "ImageManager.h"
+#include "MotorManager.h"
 
 static const uint16_t screenWidth  = 240;
 static const uint16_t screenHeight = 240;
@@ -27,22 +29,35 @@ static void my_disp_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_col
 static void hardResetTFT() {
   pinMode(TFT_RST, OUTPUT);
   pinMode(TFT_BL, OUTPUT);
-  digitalWrite(TFT_BL, LOW);       // keep backlight off during reset
+  digitalWrite(TFT_BL, LOW);
   digitalWrite(TFT_RST, HIGH);
   delay(10);
   digitalWrite(TFT_RST, LOW);
   delay(20);
   digitalWrite(TFT_RST, HIGH);
   delay(120);
-  digitalWrite(TFT_BL, HIGH);       // backlight on now that panel is ready
+  digitalWrite(TFT_BL, HIGH);
 }
 
+// ---------- Motor ----------
+#define kp_stiffness 5
+#define gearnum 30
+
+MagneticSensorI2C sensor = MagneticSensorI2C(AS5600_I2C);
+MotorManager motor_manager(sensor, gearnum, kp_stiffness);
+
 DisplayManager display;
+
+void motorControlTask(void *parameter) {
+  for (;;) {
+    motor_manager.run();
+  }
+}
 
 void setup() {
   Serial.begin(115200);
   delay(800);
-  Serial.println("\n=== Step 2: DisplayManager StartPage ===");
+  Serial.println("\n=== Step 3: Motor + Display ===");
 
   hardResetTFT();
   Serial.println("TFT hard reset done");
@@ -64,15 +79,37 @@ void setup() {
   display.init();
   Serial.println("display.init OK");
 
+  // ---- init I2C + motor ----
+  Wire.setClock(400000);
+  Wire.begin(19, 8);
+  Serial.println("Wire begin OK (SDA=19 SCL=8)");
+
+  sensor.init(&Wire);
+  Serial.println("sensor.init OK");
+  Serial.printf("angle=%.3f\n", sensor.getAngle());
+
+  motor_manager.init();
+  Serial.println("motor_manager.init OK");
+
   display.updateModeDisplay(DisplayManager::StartPage);
   display.showMessage({
       {"Hello, Deskknob!", LV_ALIGN_CENTER, 0, 0},
       {"Press to Start", LV_ALIGN_BOTTOM_MID, 0, -80}
   });
   Serial.println("StartPage shown");
+
+  // ---- launch FOC on core 1 ----
+  xTaskCreatePinnedToCore(
+      motorControlTask, "Motor", 4096, NULL, 2, NULL, 1);
+  Serial.println("motor task started on core 1");
 }
 
 void loop() {
   lv_timer_handler();
+  static uint32_t t0 = 0;
+  if (millis() - t0 > 2000) {
+    t0 = millis();
+    Serial.printf("alive angle=%.3f\n", sensor.getAngle());
+  }
   delay(5);
 }
