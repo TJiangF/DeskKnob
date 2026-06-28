@@ -6,6 +6,9 @@
 #include "DisplayManager.h"
 #include "ImageManager.h"
 #include "MotorManager.h"
+#include "MenuManager.h"
+#include <vector>
+#include <string>
 
 static const uint16_t screenWidth  = 240;
 static const uint16_t screenHeight = 240;
@@ -45,6 +48,38 @@ static void hardResetTFT() {
 MagneticSensorI2C sensor = MagneticSensorI2C(AS5600_I2C);
 MotorManager motor_manager(sensor, gearnum, kp_stiffness);
 DisplayManager display;
+MenuManager menuManager(display, motor_manager);
+
+// ---------- Menu ----------
+std::vector<MenuItem> rootMenu = {
+    MenuItem("Music", &Image_music, {
+        MenuItem("Volume", &Image_volume),
+        MenuItem("Play", &Image_play),
+        MenuItem("Back", &Image_back)
+    }),
+    MenuItem("Video", &Image_video, {
+        MenuItem("Track", &Image_track),
+        MenuItem("Back", &Image_back)
+    }),
+    MenuItem("Tools", &Image_tools, {
+        MenuItem("Calculator", &Image_calc),
+        MenuItem("Explorer", &Image_explorer),
+        MenuItem("Rotation", &Image_rotation),
+        MenuItem("Back", &Image_back)
+    }),
+    MenuItem("Settings", &Image_settings, {
+        MenuItem("Option1", &Image_settings),
+        MenuItem("Option2", &Image_settings),
+        MenuItem("Back", &Image_back)
+    })
+};
+MenuItem* currentMenu = nullptr;
+
+enum UIMode { StartPage, MainMenu, SecondMenu, Volume };
+UIMode CurrentUIMode = StartPage;
+bool UIUpdated = false;
+int32_t UIswitch_time = 0;
+int VolumeChange = 0;
 
 // ---------- Button & HX710 press ----------
 #define BUTTON_PIN 4
@@ -131,10 +166,127 @@ void motorControlTask(void *parameter) {
   }
 }
 
+void onGearChange(int new_gear) {
+  UIUpdated = false;
+  VolumeChange = new_gear;
+}
+
+// LVGL/UI state machine on core 0
+void osTask(void *pvParameters) {
+  int volumetmp = 0;
+  int volumetimetmp = 0;
+  bool fragileVolumeFlag = false;
+  for (;;) {
+    switch (CurrentUIMode) {
+      case StartPage:
+        if (!UIUpdated) {
+          menuManager.updateMainPage();
+          UIUpdated = true;
+        }
+        if (PressedFlag) {
+          UIUpdated = false;
+          menuManager.enterMainMenu(24, rootMenu.size());
+          display.initMainMenuDisplay(rootMenu);
+          display.updateMenuDisplay(rootMenu, 0);
+          CurrentUIMode = MainMenu;
+          PressedFlag = false;
+          UIswitch_time = millis();
+        }
+        break;
+
+      case MainMenu:
+        if (!UIUpdated) {
+          display.updateMenuDisplay(rootMenu, motor_manager.GetCurrentGear());
+          UIUpdated = true;
+        }
+        if (PressedFlag && (millis() - UIswitch_time >= debounceDelay)) {
+          UIswitch_time = millis();
+          PressedFlag = false;
+          currentMenu = &rootMenu[motor_manager.GetCurrentGear()];
+          CurrentUIMode = SecondMenu;
+          UIUpdated = false;
+          menuManager.enterMainMenu(24, currentMenu->subMenu.size());
+          display.initMainMenuDisplay(currentMenu->subMenu);
+        }
+        break;
+
+      case SecondMenu:
+        if (!UIUpdated) {
+          display.updateMenuDisplay(currentMenu->subMenu, motor_manager.GetCurrentGear());
+          UIUpdated = true;
+        } else if (PushbuttonPressed) {
+          PushbuttonPressed = false;
+          CurrentUIMode = MainMenu;
+          UIUpdated = false;
+          menuManager.enterMainMenu(24, rootMenu.size());
+          display.initMainMenuDisplay(rootMenu);
+          display.updateMenuDisplay(rootMenu, 0);
+        } else if (PressedFlag) {
+          if (motor_manager.GetCurrentGear() == (int)currentMenu->subMenu.size() - 1) {
+            UIswitch_time = millis();
+            PressedFlag = false;
+            CurrentUIMode = MainMenu;
+            UIUpdated = false;
+            menuManager.enterMainMenu(24, rootMenu.size());
+            display.initMainMenuDisplay(rootMenu);
+            display.updateMenuDisplay(rootMenu, 0);
+            continue;
+          } else {
+            if (currentMenu->subMenu[motor_manager.GetCurrentGear()].label == "Volume") {
+              PressedFlag = false;
+              CurrentUIMode = Volume;
+              UIUpdated = false;
+              menuManager.enterVolumeControl();
+              display.initVolumeDisplay();
+            }
+          }
+        }
+        break;
+
+      case Volume:
+        if (!UIUpdated) {
+          switch (VolumeChange) {
+            case 1:  volumetmp = 1; volumetimetmp = millis(); fragileVolumeFlag = true; break;
+            case -1: volumetmp = 2; volumetimetmp = millis(); fragileVolumeFlag = true; break;
+            default: volumetmp = 0; break;
+          }
+          display.updateVolumeDisplay(volumetmp);
+          UIUpdated = true;
+        }
+        if (fragileVolumeFlag && millis() - volumetimetmp > 1000) {
+          display.updateVolumeDisplay(0);
+          fragileVolumeFlag = false;
+        }
+        if (PressedFlag) {
+          if (volumetmp == 3) {
+            volumetmp = 0; display.updateVolumeDisplay(0);
+          } else {
+            volumetmp = 3; display.updateVolumeDisplay(3);
+          }
+          PressedFlag = false;
+        }
+        if (PushbuttonPressed) {
+          CurrentUIMode = SecondMenu;
+          UIUpdated = false;
+          currentMenu = &rootMenu[0];  // back to Music second menu
+          menuManager.enterMainMenu(24, currentMenu->subMenu.size());
+          display.initMainMenuDisplay(currentMenu->subMenu);
+          PushbuttonPressed = false;
+        }
+        break;
+
+      default: break;
+    }
+
+    lv_timer_handler();
+    vTaskDelay(pdMS_TO_TICKS(30));
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(800);
-  Serial.println("\n=== Step 4: HX710 press + button ===");
+  Serial.println("\n=== Step 5: Menu state machine ===");
 
   hardResetTFT();
   Serial.println("TFT hard reset done");
@@ -162,43 +314,29 @@ void setup() {
 
   sensor.init(&Wire);
   Serial.println("sensor.init OK");
-  Serial.printf("angle=%.3f\n", sensor.getAngle());
 
   motor_manager.init();
   Serial.println("motor_manager.init OK");
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
-  Serial.println("button configured (INPUT_PULLUP)");
-
   HX.begin();
-  Serial.println("HX710 begin OK");
   calculateBaseline();
 
-  display.updateModeDisplay(DisplayManager::StartPage);
-  display.showMessage({
-      {"Hello, Deskknob!", LV_ALIGN_CENTER, 0, 0},
-      {"Press to Start", LV_ALIGN_BOTTOM_MID, 0, -80}
-  });
-  Serial.println("StartPage shown");
+  Serial.println("StartPage");
+  CurrentUIMode = StartPage;
+  UIUpdated = false;
+
+  motor_manager.setGearChangeCallback(onGearChange);
 
   xTaskCreatePinnedToCore(motorControlTask, "Motor", 8192, NULL, 2, NULL, 1);
   xTaskCreatePinnedToCore(hx710ProcessingTask, "HX710", 2048, NULL, 1, NULL, 0);
-  Serial.println("tasks started");
+  xTaskCreatePinnedToCore(osTask, "OS", 8192, NULL, 2, NULL, 0);
 
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), handleButtonPress, FALLING);
-  Serial.println("button interrupt attached");
+  Serial.println("setup done");
 }
 
 void loop() {
-  lv_timer_handler();
-  static uint32_t t0 = 0;
-  if (millis() - t0 > 2000) {
-    t0 = millis();
-    int32_t v = HX.read();
-    Serial.printf("alive angle=%.3f hx=%d Press=%d pushes=%u base=%d trig=%d\n",
-                  motor_manager.GetAngle(), v, PressedFlag, pushCount,
-                  baselineValue, TRIGGER_THRESHOLD);
-    PressedFlag = false;
-  }
-  delay(5);
+  // idle - all work in tasks
+  vTaskDelay(pdMS_TO_TICKS(100));
 }
