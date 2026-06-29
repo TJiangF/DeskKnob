@@ -48,8 +48,8 @@ public:
     void updateTorqueSetDisplay(int value, bool editing);
     void showSuccessAnimation();
 
-    void onSuccessAnimDone();
-    bool isAnimRunning() const { return success_anim_running || lv_anim_count_running(); }
+    bool isAnimRunning() const { return lv_anim_count_running() > 0; }
+    void resetAnimState() { success_anim_running = false; }
 
 
     void updateAngle(float angle);         // 更新角度显示

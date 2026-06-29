@@ -10,6 +10,11 @@
 #include "MenuManager.h"
 #include <vector>
 #include <string>
+#include <math.h>
+
+#ifndef PI
+#define PI 3.14159265358979323846f
+#endif
 
 static const uint16_t screenWidth  = 240;
 static const uint16_t screenHeight = 240;
@@ -85,7 +90,8 @@ int VolumeChange = 0;
 // ---------- TorqueSet state ----------
 int torqueSetValue = 24;       // 当前 effective value (默认 24)
 int torqueSetEditing = 24;     // 编辑期临时值
-int torqueSetLastGear = 0;     // 用于检测档位变化
+float torqueSetInitAngle = 0;  // 进入时 sensor 角度作为基准
+uint32_t torqueSetAnimStartMs = 0;  // 动画开始时间，超时强制退出
 bool torqueSetConfirm = false; // pressure 触发确认
 
 // ---------- Button & HX710 press ----------
@@ -249,10 +255,11 @@ void osTask(void *pvParameters) {
               PressedFlag = false;
               CurrentUIMode = TorqueSet;
               UIUpdated = false;
+              // 进入扭矩模式但用一个固定大档位 (60) 作为编辑器的转轴阻力
               motor_manager.updateControlMode(MotorManager::Infinite_TorqueControl);
-              motor_manager.updateGearnum(torqueSetValue);    // 临时让档位数 = 当前 value
+              motor_manager.updateGearnum(60);
+              torqueSetInitAngle = motor_manager.GetAngle();
               torqueSetEditing = torqueSetValue;
-              torqueSetLastGear = motor_manager.GetCurrentGear();
               display.initTorqueSetDisplay();
               display.updateTorqueSetDisplay(torqueSetEditing, true);
             }
@@ -262,37 +269,43 @@ void osTask(void *pvParameters) {
 
       case TorqueSet:
         if (!UIUpdated) {
-          int g = motor_manager.GetCurrentGear();
-          if (g != torqueSetLastGear) {
-            torqueSetEditing = torqueSetValue + (g - torqueSetLastGear);
-            if (torqueSetEditing < 1) torqueSetEditing = 1;
-            if (torqueSetEditing > 60) torqueSetEditing = 60;
-            torqueSetLastGear = g;
+          // 直接基于 sensor 角位移计算 editing 值
+          // attractor_distance = 2*PI/60, 一档角位移 = 6°
+          float delta = motor_manager.GetAngle() - torqueSetInitAngle;
+          int deltaGears = (int)lroundf(delta / (2 * PI / 60));
+          int newVal = torqueSetValue + deltaGears;
+          if (newVal < 2) newVal = 2;
+          if (newVal > 60) newVal = 60;
+          if (newVal != torqueSetEditing) {
+            torqueSetEditing = newVal;
+            display.updateTorqueSetDisplay(torqueSetEditing, true);
           }
-          display.updateTorqueSetDisplay(torqueSetEditing, true);
           UIUpdated = true;
         }
         // pressure 一次确认
         if (PressedFlag) {
           PressedFlag = false;
           torqueSetValue = torqueSetEditing;
-          motor_manager.updateGearnum(torqueSetValue);
+          motor_manager.updateGearnum(torqueSetValue);    // 全局生效
           display.showSuccessAnimation();
-          UIUpdated = false;
-          // 动画 ~500ms 后退出
+          torqueSetAnimStartMs = millis();
           torqueSetConfirm = true;
+          UIUpdated = false;
         }
-        if (torqueSetConfirm && !display.isAnimRunning()) {
+        // 动画超时 (~1.2s) 或显式结束 → 退出
+        if (torqueSetConfirm && (millis() - torqueSetAnimStartMs > 1200)) {
           torqueSetConfirm = false;
+          display.resetAnimState();
           CurrentUIMode = SecondMenu;
           UIUpdated = false;
-          currentMenu = &rootMenu[3];  // back to Settings second menu
+          currentMenu = &rootMenu[3];   // back to Settings second menu
           menuManager.enterMainMenu(24, currentMenu->subMenu.size());
           display.initMainMenuDisplay(currentMenu->subMenu);
         }
         // button = cancel without saving
         if (PushbuttonPressed) {
           PushbuttonPressed = false;
+          display.resetAnimState();
           CurrentUIMode = SecondMenu;
           UIUpdated = false;
           currentMenu = &rootMenu[3];
