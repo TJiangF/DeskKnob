@@ -70,17 +70,23 @@ std::vector<MenuItem> rootMenu = {
     }),
     MenuItem("Settings", Image_settings, {
         MenuItem("Option1", Image_settings),
-        MenuItem("Option2", Image_settings),
+        MenuItem("Torque Set", Image_torque),
         MenuItem("Back", Image_back)
     })
 };
 MenuItem* currentMenu = nullptr;
 
-enum UIMode { StartPage, MainMenu, SecondMenu, Volume };
+enum UIMode { StartPage, MainMenu, SecondMenu, Volume, TorqueSet };
 UIMode CurrentUIMode = StartPage;
 bool UIUpdated = false;
 int32_t UIswitch_time = 0;
 int VolumeChange = 0;
+
+// ---------- TorqueSet state ----------
+int torqueSetValue = 24;       // 当前 effective value (默认 24)
+int torqueSetEditing = 24;     // 编辑期临时值
+int torqueSetLastGear = 0;     // 用于检测档位变化
+bool torqueSetConfirm = false; // pressure 触发确认
 
 // ---------- Button & HX710 press ----------
 #define BUTTON_PIN 4
@@ -239,8 +245,59 @@ void osTask(void *pvParameters) {
               UIUpdated = false;
               menuManager.enterVolumeControl();
               display.initVolumeDisplay();
+            } else if (currentMenu->subMenu[motor_manager.GetCurrentGear()].label == "Torque Set") {
+              PressedFlag = false;
+              CurrentUIMode = TorqueSet;
+              UIUpdated = false;
+              motor_manager.updateControlMode(MotorManager::Infinite_TorqueControl);
+              motor_manager.updateGearnum(torqueSetValue);    // 临时让档位数 = 当前 value
+              torqueSetEditing = torqueSetValue;
+              torqueSetLastGear = motor_manager.GetCurrentGear();
+              display.initTorqueSetDisplay();
+              display.updateTorqueSetDisplay(torqueSetEditing, true);
             }
           }
+        }
+        break;
+
+      case TorqueSet:
+        if (!UIUpdated) {
+          int g = motor_manager.GetCurrentGear();
+          if (g != torqueSetLastGear) {
+            torqueSetEditing = torqueSetValue + (g - torqueSetLastGear);
+            if (torqueSetEditing < 1) torqueSetEditing = 1;
+            if (torqueSetEditing > 60) torqueSetEditing = 60;
+            torqueSetLastGear = g;
+          }
+          display.updateTorqueSetDisplay(torqueSetEditing, true);
+          UIUpdated = true;
+        }
+        // pressure 一次确认
+        if (PressedFlag) {
+          PressedFlag = false;
+          torqueSetValue = torqueSetEditing;
+          motor_manager.updateGearnum(torqueSetValue);
+          display.showSuccessAnimation();
+          UIUpdated = false;
+          // 动画 ~500ms 后退出
+          torqueSetConfirm = true;
+        }
+        if (torqueSetConfirm && !display.isAnimRunning()) {
+          torqueSetConfirm = false;
+          CurrentUIMode = SecondMenu;
+          UIUpdated = false;
+          currentMenu = &rootMenu[3];  // back to Settings second menu
+          menuManager.enterMainMenu(24, currentMenu->subMenu.size());
+          display.initMainMenuDisplay(currentMenu->subMenu);
+        }
+        // button = cancel without saving
+        if (PushbuttonPressed) {
+          PushbuttonPressed = false;
+          CurrentUIMode = SecondMenu;
+          UIUpdated = false;
+          currentMenu = &rootMenu[3];
+          menuManager.enterMainMenu(24, currentMenu->subMenu.size());
+          display.initMainMenuDisplay(currentMenu->subMenu);
         }
         break;
 

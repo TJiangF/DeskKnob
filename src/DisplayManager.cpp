@@ -302,6 +302,103 @@ void DisplayManager::setBackgroundColor(lv_color_t color) {
     lv_obj_set_style_bg_color(lv_scr_act(), color, LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
+// ===================== TorqueSet & success animation =====================
+
+void DisplayManager::initTorqueSetDisplay() {
+    if (dial_torque) {              // 已经创建过了
+        lv_obj_clear_flag(dial_torque, LV_OBJ_FLAG_HIDDEN);
+        lv_scr_load(dial_torque);
+        lv_obj_invalidate(dial_torque);
+        return;
+    }
+    dial_torque = lv_obj_create(NULL);
+    lv_obj_set_size(dial_torque, 240, 240);
+    lv_obj_set_style_bg_color(dial_torque, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(dial_torque, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(dial_torque, 0, 0);
+
+    // 大数字（中央）
+    if (!styles_inited) {
+        lv_style_init(&center_label_style);
+        lv_style_set_text_color(&center_label_style, lv_color_white());
+        lv_style_set_text_font(&center_label_style, &lv_font_montserrat_20);
+        styles_inited = true;
+    }
+
+    torque_value_label = lv_label_create(dial_torque);
+    lv_label_set_text(torque_value_label, "0");
+    lv_obj_align(torque_value_label, LV_ALIGN_CENTER, 0, -20);
+    lv_obj_set_style_text_font(torque_value_label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(torque_value_label, lv_color_white(), 0);
+
+    torque_hint_label = lv_label_create(dial_torque);
+    lv_label_set_text(torque_hint_label, "Turn to set\nPress to confirm");
+    lv_obj_align(torque_hint_label, LV_ALIGN_CENTER, 0, 40);
+    lv_obj_set_style_text_color(torque_hint_label, lv_palette_lighten(LV_PALETTE_GREY, 2), 0);
+
+    success_label = lv_label_create(dial_torque);
+    lv_label_set_text(success_label, "");
+    lv_obj_align(success_label, LV_ALIGN_CENTER, 0, -20);
+    lv_obj_set_style_text_color(success_label, lv_palette_main(LV_PALETTE_GREEN), 0);
+    lv_obj_set_style_text_font(success_label, &lv_font_montserrat_20, 0);
+
+    lv_scr_load(dial_torque);
+    lv_obj_invalidate(dial_torque);
+}
+
+void DisplayManager::updateTorqueSetDisplay(int value, bool editing) {
+    if (!dial_torque) return;
+    if (lv_scr_act() != dial_torque) {
+        lv_scr_load(dial_torque);
+    }
+    if (success_anim_running) return;     // 动画期间不刷数字
+
+    lv_label_set_text_fmt(torque_value_label, "%d", value);
+    lv_obj_clear_flag(torque_value_label, LV_OBJ_FLAG_HIDDEN);
+    if (editing) {
+        lv_label_set_text(torque_hint_label, "Turn to set\nPress to confirm");
+    } else {
+        lv_label_set_text(torque_hint_label, "Press to start editing");
+    }
+    lv_obj_clear_flag(torque_hint_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(success_label, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_invalidate(dial_torque);
+}
+
+void DisplayManager::onSuccessAnimDone() {
+    success_anim_running = false;
+}
+
+// 弹性放大动画：zoom 256 = 1.0x（LVGL 8.x transform_zoom 单位）
+static void scale_anim_cb(void * obj, int32_t v) {
+    lv_obj_set_style_transform_zoom(reinterpret_cast<lv_obj_t*>(obj), v, 0);
+}
+
+void DisplayManager::showSuccessAnimation() {
+    if (!dial_torque || !success_label) return;
+    success_anim_running = true;
+
+    // 隐藏数字与提示，只显示 "Saved!" 文本
+    lv_obj_add_flag(torque_value_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(torque_hint_label, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(success_label, "Saved!");
+    lv_obj_clear_flag(success_label, LV_OBJ_FLAG_HIDDEN);
+
+    // 对 "Saved!" 标签做放大缩回效果
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, success_label);
+    lv_anim_set_values(&a, 128, 320);     // 0.5x -> 1.25x
+    lv_anim_set_time(&a, 250);
+    lv_anim_set_playback_time(&a, 250);
+    lv_anim_set_path_cb(&a, lv_anim_path_overshoot);
+    lv_anim_set_exec_cb(&a, scale_anim_cb);
+    lv_anim_start(&a);
+
+    lv_obj_invalidate(dial_torque);
+}
+
 
 // void DisplayManager::clearAllMessage() {
 //     // 隐藏所有对象（包括公共和模式特定对象）

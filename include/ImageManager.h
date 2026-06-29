@@ -24,5 +24,6 @@ extern const char* Image_volumeup;
 extern const char* Image_volumedown;
 extern const char* Image_volumemute;
 extern const char* Image_volume120;
+extern const char* Image_torque;
 
 #endif // IMAGE_RESOURCES_H

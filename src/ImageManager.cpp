@@ -20,3 +20,4 @@ const char* Image_volumeup    = "L:/volumeup.png";
 const char* Image_volumedown  = "L:/volumedown.png";
 const char* Image_volumemute  = "L:/volumemute.png";
 const char* Image_volume120  = "L:/volume120.png";
+const char* Image_torque     = "L:/torque.png";

@@ -44,6 +44,13 @@ public:
     void initVolumeDisplay();
     void updateVolumeDisplay(int volumestatus);
 
+    void initTorqueSetDisplay();
+    void updateTorqueSetDisplay(int value, bool editing);
+    void showSuccessAnimation();
+
+    void onSuccessAnimDone();
+    bool isAnimRunning() const { return success_anim_running || lv_anim_count_running(); }
+
 
     void updateAngle(float angle);         // 更新角度显示
     void updateTarAngle(float Target_angle); // 更新目标角度显示
@@ -67,6 +74,11 @@ private:
     lv_obj_t* logos[8] = {nullptr};         // 圆周分布的图标对象
     lv_obj_t* volumelogos= nullptr;         // 圆周分布的图标对象
     lv_obj_t* backlogo= nullptr;         // 圆周分布的图标对象
+    lv_obj_t* dial_torque = nullptr;        // TorqueSet 屏幕
+    lv_obj_t* torque_value_label = nullptr;   // TorqueSet 数字
+    lv_obj_t* torque_hint_label = nullptr;    // TorqueSet 提示
+    lv_obj_t* success_label = nullptr;        // 设置成功提示
+    volatile bool success_anim_running = false;
     // std::vector<lv_obj_t*> logos ;         // 圆周分布的图标对象
     // lv_obj_t *center_circle = nullptr;      // 中心圆
     lv_obj_t *center_label = nullptr;       // 中心圆内的标签
