@@ -198,7 +198,7 @@ void osTask(void *pvParameters) {
         }
         if (PressedFlag) {
           UIUpdated = false;
-          menuManager.enterMainMenu(24, rootMenu.size());
+          menuManager.enterMainMenu(torqueSetValue, rootMenu.size());
           display.initMainMenuDisplay(rootMenu);
           display.updateMenuDisplay(rootMenu, 0);
           CurrentUIMode = MainMenu;
@@ -218,7 +218,7 @@ void osTask(void *pvParameters) {
           currentMenu = &rootMenu[motor_manager.GetCurrentGear()];
           CurrentUIMode = SecondMenu;
           UIUpdated = false;
-          menuManager.enterMainMenu(24, currentMenu->subMenu.size());
+          menuManager.enterMainMenu(torqueSetValue, currentMenu->subMenu.size());
           display.initMainMenuDisplay(currentMenu->subMenu);
         }
         break;
@@ -231,7 +231,7 @@ void osTask(void *pvParameters) {
           PushbuttonPressed = false;
           CurrentUIMode = MainMenu;
           UIUpdated = false;
-          menuManager.enterMainMenu(24, rootMenu.size());
+          menuManager.enterMainMenu(torqueSetValue, rootMenu.size());
           display.initMainMenuDisplay(rootMenu);
           display.updateMenuDisplay(rootMenu, 0);
         } else if (PressedFlag) {
@@ -240,7 +240,7 @@ void osTask(void *pvParameters) {
             PressedFlag = false;
             CurrentUIMode = MainMenu;
             UIUpdated = false;
-            menuManager.enterMainMenu(24, rootMenu.size());
+            menuManager.enterMainMenu(torqueSetValue, rootMenu.size());
             display.initMainMenuDisplay(rootMenu);
             display.updateMenuDisplay(rootMenu, 0);
             continue;
@@ -299,7 +299,7 @@ void osTask(void *pvParameters) {
           CurrentUIMode = SecondMenu;
           UIUpdated = false;
           currentMenu = &rootMenu[3];   // back to Settings second menu
-          menuManager.enterMainMenu(24, currentMenu->subMenu.size());
+          menuManager.enterMainMenu(torqueSetValue, currentMenu->subMenu.size());
           display.initMainMenuDisplay(currentMenu->subMenu);
         }
         // button = cancel without saving
@@ -309,7 +309,7 @@ void osTask(void *pvParameters) {
           CurrentUIMode = SecondMenu;
           UIUpdated = false;
           currentMenu = &rootMenu[3];
-          menuManager.enterMainMenu(24, currentMenu->subMenu.size());
+          menuManager.enterMainMenu(torqueSetValue, currentMenu->subMenu.size());
           display.initMainMenuDisplay(currentMenu->subMenu);
         }
         break;
@@ -340,7 +340,7 @@ void osTask(void *pvParameters) {
           CurrentUIMode = SecondMenu;
           UIUpdated = false;
           currentMenu = &rootMenu[0];  // back to Music second menu
-          menuManager.enterMainMenu(24, currentMenu->subMenu.size());
+          menuManager.enterMainMenu(torqueSetValue, currentMenu->subMenu.size());
           display.initMainMenuDisplay(currentMenu->subMenu);
           PushbuttonPressed = false;
         }
