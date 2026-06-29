@@ -8,6 +8,7 @@
 #include "ImageManager.h"
 #include "MotorManager.h"
 #include "MenuManager.h"
+#include "WifiManager.h"
 #include <vector>
 #include <string>
 #include <math.h>
@@ -76,13 +77,26 @@ std::vector<MenuItem> rootMenu = {
     MenuItem("Settings", Image_settings, {
         MenuItem("Option1", Image_settings),
         MenuItem("Torque Set", Image_torque),
+        MenuItem("WiFi", Image_wifi),
         MenuItem("Back", Image_back)
     })
 };
 MenuItem* currentMenu = nullptr;
 
-enum UIMode { StartPage, MainMenu, SecondMenu, Volume, TorqueSet };
+enum UIMode { StartPage, MainMenu, SecondMenu, Volume, TorqueSet,
+              WifiList, WifiPassword, WifiConnecting, WifiResult };
 UIMode CurrentUIMode = StartPage;
+
+// ---------- WiFi state ----------
+WifiManager wifiMgr;
+int wifiSelectedSSIDIndex = -1;   // WifiList 选中索引 (found[])
+String wifiSelectedSSID;
+String wifiPasswordBuf;          // 密码输入缓冲
+int wifiCharIdx = 0;             // 当前字符表选中
+String wifiResultMsg;
+String wifiConnectedSSID;       // 已连接的 SSID（StartPage 用）
+std::vector<std::pair<String,int>> wifiNets;   // WifiList 显示列表
+uint32_t wifiConnectStartMs = 0;
 bool UIUpdated = false;
 int32_t UIswitch_time = 0;
 int VolumeChange = 0;
@@ -194,6 +208,10 @@ void osTask(void *pvParameters) {
       case StartPage:
         if (!UIUpdated) {
           menuManager.updateMainPage();
+          if (wifiMgr.isConnected()) {
+            wifiConnectedSSID = WiFi.SSID();
+            display.showWifiOnStartPage(true, wifiConnectedSSID);
+          }
           UIUpdated = true;
         }
         if (PressedFlag) {
@@ -262,6 +280,25 @@ void osTask(void *pvParameters) {
               torqueSetEditing = torqueSetValue;
               display.initTorqueSetDisplay();
               display.updateTorqueSetDisplay(torqueSetEditing, true);
+            } else if (currentMenu->subMenu[motor_manager.GetCurrentGear()].label == "WiFi") {
+              PressedFlag = false;
+              CurrentUIMode = WifiList;
+              UIUpdated = false;
+              motor_manager.updateControlMode(MotorManager::Infinite_TorqueControl);
+              motor_manager.updateGearnum(20);
+              wifiSelectedSSIDIndex = 0;
+              wifiMgr.loadStored();
+              int n = wifiMgr.scan();
+              wifiNets.clear();
+              for (int i = 0; i < wifiMgr.storedCount(); i++) {
+                wifiNets.push_back(std::make_pair(wifiMgr.storedAt(i).ssid, 0));
+              }
+              for (int i = 0; i < n; i++) {
+                wifiNets.push_back(std::make_pair(wifiMgr.scanAt(i), wifiMgr.scanRSSI(i)));
+              }
+              wifiPasswordBuf = "";
+              wifiCharIdx = 0;
+              display.initWifiListDisplay(wifiNets);
             }
           }
         }
@@ -345,6 +382,154 @@ void osTask(void *pvParameters) {
           PushbuttonPressed = false;
         }
         break;
+
+      default: break;
+    }
+
+    // ---- WiFi sub-state machines ----
+    switch (CurrentUIMode) {
+      case WifiList: {
+        // 用 gear 切换选中项
+        int g = motor_manager.GetCurrentGear();
+        if (g >= (int)wifiNets.size()) g = (int)wifiNets.size() - 1;
+        if (g < 0) g = 0;
+        if (g != wifiSelectedSSIDIndex) {
+          wifiSelectedSSIDIndex = g;
+          display.updateWifiListDisplay(wifiNets, g);
+        }
+        if (PressedFlag) {
+          PressedFlag = false;
+          if (!wifiNets.empty()) {
+            wifiSelectedSSID = wifiNets[wifiSelectedSSIDIndex].first;
+            // 检查 stored 里有没有该 SSID 密码
+            String pass = "";
+            wifiMgr.loadStored();
+            for (int i = 0; i < wifiMgr.storedCount(); i++) {
+              if (wifiMgr.storedAt(i).ssid == wifiSelectedSSID) {
+                pass = wifiMgr.storedAt(i).pass;
+                break;
+              }
+            }
+            if (pass.length() > 0) {
+              // 已存密码直接连
+              CurrentUIMode = WifiConnecting;
+              UIUpdated = false;
+              wifiConnectStartMs = millis();
+              display.showWifiConnecting(wifiSelectedSSID);
+              WiFi.mode(WIFI_STA);
+              WiFi.begin(wifiSelectedSSID.c_str(), pass.c_str());
+            } else {
+              // 跳到密码输入
+              CurrentUIMode = WifiPassword;
+              UIUpdated = false;
+              wifiPasswordBuf = "";
+              wifiCharIdx = 0;
+              display.initWifiPasswordDisplay(wifiSelectedSSID, "", 0);
+            }
+          }
+        }
+        if (PushbuttonPressed) {
+          PushbuttonPressed = false;
+          CurrentUIMode = SecondMenu;
+          UIUpdated = false;
+          currentMenu = &rootMenu[3];
+          menuManager.enterMainMenu(torqueSetValue, currentMenu->subMenu.size());
+          display.initMainMenuDisplay(currentMenu->subMenu);
+        }
+        break;
+      }
+
+      case WifiPassword: {
+        // 用 gear 切换字符
+        int g = motor_manager.GetCurrentGear();
+        wifiCharIdx = g % 76;   // 0..75 (字符表长度)
+        static int lastCharUpdate = -1;
+        if (wifiCharIdx != lastCharUpdate) {
+          display.updateWifiPasswordDisplay(wifiPasswordBuf, wifiCharIdx);
+          lastCharUpdate = wifiCharIdx;
+        }
+        if (PressedFlag) {
+          // 旋钮按压力可在 LVGL 不刷新时直接计算 sensor 角度
+          PressedFlag = false;
+          // 按 1.5s 长按为确认连接，否则追加一个字符
+          uint32_t holdTime = millis() - lastPressTime;
+          if (holdTime > 1500) {
+            // 长按 → 确认连接
+            CurrentUIMode = WifiConnecting;
+            UIUpdated = false;
+            wifiConnectStartMs = millis();
+            display.showWifiConnecting(wifiSelectedSSID);
+            WiFi.mode(WIFI_STA);
+            WiFi.begin(wifiSelectedSSID.c_str(), wifiPasswordBuf.c_str());
+          } else {
+            // 短按 → 追加当前字符
+            const char* WIFI_CHARSET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*-_+=?";
+            char ch = WIFI_CHARSET[wifiCharIdx];
+            wifiPasswordBuf += ch;
+            display.updateWifiPasswordDisplay(wifiPasswordBuf, wifiCharIdx);
+          }
+        }
+        if (PushbuttonPressed) {
+          PushbuttonPressed = false;
+          if (wifiPasswordBuf.length() > 0) {
+            // 回删一个字符
+            wifiPasswordBuf.remove(wifiPasswordBuf.length() - 1);
+            display.updateWifiPasswordDisplay(wifiPasswordBuf, wifiCharIdx);
+          } else {
+            // 已是空 → 退回 WifiList
+            CurrentUIMode = WifiList;
+            UIUpdated = false;
+            display.initWifiListDisplay(wifiNets);
+          }
+        }
+        break;
+      }
+
+      case WifiConnecting: {
+        // 用 .. 显示动态点 + 每 200ms 检查连接状态
+        static uint32_t lastDotMs = 0;
+        if (millis() - lastDotMs > 300) {
+          lastDotMs = millis();
+          int dots = (millis() - wifiConnectStartMs) / 300;
+          display.updateWifiConnecting(dots);
+        }
+        if (WiFi.status() == WL_CONNECTED) {
+          // 成功
+          wifiMgr.addEntry(wifiSelectedSSID, wifiPasswordBuf);
+          wifiConnectedSSID = wifiSelectedSSID;
+          CurrentUIMode = WifiResult;
+          UIUpdated = false;
+          char buf[80];
+          snprintf(buf, sizeof(buf), "Connected!\n%s\n%s", wifiSelectedSSID.c_str(),
+                   WiFi.localIP().toString().c_str());
+          display.showWifiResult(buf, true);
+          wifiConnectStartMs = millis();   // 用于显示时长倒计时
+        } else if (millis() - wifiConnectStartMs > 9000) {
+          // 超时失败
+          CurrentUIMode = WifiResult;
+          UIUpdated = false;
+          display.showWifiResult("Failed to connect", false);
+          wifiConnectStartMs = millis();
+        }
+        break;
+      }
+
+      case WifiResult: {
+        // 显示 2 秒后自动返回 Settings 二级菜单
+        if (millis() - wifiConnectStartMs > 2000 || PushbuttonPressed) {
+          PushbuttonPressed = false;
+          CurrentUIMode = SecondMenu;
+          UIUpdated = false;
+          currentMenu = &rootMenu[3];
+          menuManager.enterMainMenu(torqueSetValue, currentMenu->subMenu.size());
+          display.initMainMenuDisplay(currentMenu->subMenu);
+          // StartPage 装饰会在校验 StartPage 时通过 wifiMgr.isConnected() 触发
+          if (wifiConnectedSSID.length() > 0) {
+            display.showWifiOnStartPage(true, wifiConnectedSSID);
+          }
+        }
+        break;
+      }
 
       default: break;
     }

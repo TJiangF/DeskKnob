@@ -21,3 +21,5 @@ const char* Image_volumedown  = "L:/volumedown.png";
 const char* Image_volumemute  = "L:/volumemute.png";
 const char* Image_volume120  = "L:/volume120.png";
 const char* Image_torque     = "L:/torque.png";
+const char* Image_wifi        = "L:/wifi.png";
+const char* Image_wifi_on    = "L:/wifi_on.png";

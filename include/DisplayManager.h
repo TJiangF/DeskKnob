@@ -1,10 +1,12 @@
 #ifndef DISPLAY_MANAGER_H
 #define DISPLAY_MANAGER_H
 
+#include <Arduino.h>
 #include <lvgl.h>
 #include <vector>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 #include <tuple>
 #include "ImageManager.h"
@@ -51,7 +53,33 @@ public:
     bool isAnimRunning() const { return lv_anim_count_running() > 0; }
     void resetAnimState() { success_anim_running = false; }
 
+    // ---------- WiFi displays ----------
+    void initWifiListDisplay(const std::vector<std::pair<String,int>>& nets);
+    void updateWifiListDisplay(const std::vector<std::pair<String,int>>& nets, int sel);
 
+    void initWifiPasswordDisplay(const String& ssid, const String& pwd, int charSel);
+    void updateWifiPasswordDisplay(const String& pwd, int charSel);
+
+    void showWifiConnecting(const String& ssid);
+    void updateWifiConnecting(int dots);
+
+    void showWifiResult(const String& msg, bool ok);
+
+    void showWifiOnStartPage(bool connected, const String& ssid);
+
+private:
+    lv_obj_t* dial_wifi_list = nullptr;
+    lv_obj_t* wifi_list_labels[8] = {nullptr};
+    lv_obj_t* dial_wifi_pwd = nullptr;
+    lv_obj_t* wifi_ssid_label = nullptr;
+    lv_obj_t* wifi_pwd_label = nullptr;
+    lv_obj_t* wifi_char_label = nullptr;
+    lv_obj_t* dial_wifi_status = nullptr;
+    lv_obj_t* wifi_status_label = nullptr;
+    lv_obj_t* wifi_start_icon = nullptr;
+
+
+public:
     void updateAngle(float angle);         // 更新角度显示
     void updateTarAngle(float Target_angle); // 更新目标角度显示
     void updateVelocity(float velocity);   // 更新速度显示
@@ -60,7 +88,7 @@ public:
 
     void updateModeDisplay(Mode mode);     // 更新模式显示
 
-    void showPressedMessage(); // 显示按下的信息  
+    void showPressedMessage(); // 显示按下的信息
     void clearPressedMessage(); // 清除按下的信息
 
     void setBackgroundColor(lv_color_t color); // 设置背景颜色

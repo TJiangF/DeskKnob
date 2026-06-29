@@ -25,5 +25,7 @@ extern const char* Image_volumedown;
 extern const char* Image_volumemute;
 extern const char* Image_volume120;
 extern const char* Image_torque;
+extern const char* Image_wifi;
+extern const char* Image_wifi_on;
 
 #endif // IMAGE_RESOURCES_H

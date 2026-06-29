@@ -389,3 +389,162 @@ void DisplayManager::showSuccessAnimation() {
 //         }
 //     }
 // }
+
+// ===================== WiFi displays =====================
+
+// 字符表：0-9 a-z A-Z 符号 (順时针旋转选择)
+static const char* WIFI_CHARSET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*-_+=?";
+static const int WIFI_CHARSET_LEN = 26 + 26 + 10 + 14;  // = 76
+
+void DisplayManager::initWifiListDisplay(const std::vector<std::pair<String,int>>& nets) {
+    if (!dial_wifi_list) {
+        dial_wifi_list = lv_obj_create(NULL);
+        lv_obj_set_size(dial_wifi_list, 240, 240);
+        lv_obj_set_style_bg_color(dial_wifi_list, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(dial_wifi_list, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(dial_wifi_list, 0, 0);
+        lv_obj_set_style_pad_all(dial_wifi_list, 6, 0);
+        lv_obj_set_scrollbar_mode(dial_wifi_list, LV_SCROLLBAR_MODE_OFF);
+        for (int i = 0; i < 8; i++) {
+            wifi_list_labels[i] = lv_label_create(dial_wifi_list);
+            lv_obj_set_style_text_color(wifi_list_labels[i], lv_color_white(), 0);
+            lv_label_set_text(wifi_list_labels[i], "");
+            lv_obj_align(wifi_list_labels[i], LV_ALIGN_TOP_LEFT, 4, 4 + i * 24);
+        }
+    }
+    updateWifiListDisplay(nets, 0);
+}
+
+void DisplayManager::updateWifiListDisplay(const std::vector<std::pair<String,int>>& nets, int sel) {
+    if (!dial_wifi_list) return;
+    if (lv_scr_act() != dial_wifi_list) lv_scr_load(dial_wifi_list);
+    int n = (int)nets.size();
+    if (n > 8) n = 8;
+    for (int i = 0; i < 8; i++) {
+        if (i < n) {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "%s %s %ddBm",
+                     (i == sel ? ">" : " "),
+                     nets[i].first.c_str(),
+                     nets[i].second);
+            lv_label_set_text(wifi_list_labels[i], buf);
+            lv_obj_set_style_text_color(wifi_list_labels[i],
+                (i == sel) ? lv_palette_main(LV_PALETTE_BLUE) : lv_color_white(), 0);
+            lv_obj_clear_flag(wifi_list_labels[i], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_label_set_text(wifi_list_labels[i], "");
+            lv_obj_add_flag(wifi_list_labels[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    lv_obj_invalidate(dial_wifi_list);
+}
+
+void DisplayManager::initWifiPasswordDisplay(const String& ssid, const String& pwd, int charSel) {
+    if (!dial_wifi_pwd) {
+        dial_wifi_pwd = lv_obj_create(NULL);
+        lv_obj_set_size(dial_wifi_pwd, 240, 240);
+        lv_obj_set_style_bg_color(dial_wifi_pwd, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(dial_wifi_pwd, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(dial_wifi_pwd, 0, 0);
+
+        wifi_ssid_label = lv_label_create(dial_wifi_pwd);
+        lv_obj_align(wifi_ssid_label, LV_ALIGN_TOP_MID, 0, 8);
+        lv_obj_set_style_text_color(wifi_ssid_label, lv_palette_lighten(LV_PALETTE_GREY, 2), 0);
+
+        wifi_pwd_label = lv_label_create(dial_wifi_pwd);
+        lv_obj_align(wifi_pwd_label, LV_ALIGN_TOP_MID, 0, 50);
+        lv_obj_set_style_text_color(wifi_pwd_label, lv_color_white(), 0);
+        lv_obj_set_style_text_font(wifi_pwd_label, &lv_font_montserrat_20, 0);
+
+        wifi_char_label = lv_label_create(dial_wifi_pwd);
+        lv_obj_align(wifi_char_label, LV_ALIGN_TOP_MID, 0, 110);
+        lv_obj_set_style_text_font(wifi_char_label, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_color(wifi_char_label, lv_palette_main(LV_PALETTE_GREEN), 0);
+
+        lv_obj_t* hint = lv_label_create(dial_wifi_pwd);
+        lv_label_set_text(hint, "Turn = pick char\nPress = add\nBtn = back");
+        lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
+        lv_obj_set_style_text_color(hint, lv_palette_lighten(LV_PALETTE_GREY, 2), 0);
+        lv_obj_set_user_data(dial_wifi_pwd, hint);   // 保存 hint
+    }
+    char ssidBuf[80];
+    snprintf(ssidBuf, sizeof(ssidBuf), "SSID: %s", ssid.c_str());
+    lv_label_set_text(wifi_ssid_label, ssidBuf);
+
+    // 显示密码 + 当前选中的字符
+    updateWifiPasswordDisplay(pwd, charSel);
+
+    lv_scr_load(dial_wifi_pwd);
+    lv_obj_invalidate(dial_wifi_pwd);
+}
+
+void DisplayManager::updateWifiPasswordDisplay(const String& pwd, int charSel) {
+    if (!dial_wifi_pwd) return;
+    if (lv_scr_act() != dial_wifi_pwd) lv_scr_load(dial_wifi_pwd);
+    // 密码显示 (mask * 但留最后 2 字符可见)
+    String display = "";
+    int len = (int)pwd.length();
+    for (int i = 0; i < len - 2; i++) display += "*";
+    if (len >= 2) display += pwd.substring(len - 2);
+    else display = pwd;
+    lv_label_set_text(wifi_pwd_label, display.c_str());
+
+    char ch = WIFI_CHARSET[charSel % WIFI_CHARSET_LEN];
+    char buf[2] = {ch, 0};
+    lv_label_set_text(wifi_char_label, buf);
+
+    lv_obj_invalidate(dial_wifi_pwd);
+}
+
+void DisplayManager::showWifiConnecting(const String& ssid) {
+    if (!dial_wifi_status) {
+        dial_wifi_status = lv_obj_create(NULL);
+        lv_obj_set_size(dial_wifi_status, 240, 240);
+        lv_obj_set_style_bg_color(dial_wifi_status, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(dial_wifi_status, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(dial_wifi_status, 0, 0);
+
+        wifi_status_label = lv_label_create(dial_wifi_status);
+        lv_obj_align(wifi_status_label, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_text_color(wifi_status_label, lv_color_white(), 0);
+        lv_obj_set_style_text_font(wifi_status_label, &lv_font_montserrat_20, 0);
+    }
+    char buf[80];
+    snprintf(buf, sizeof(buf), "Connecting to\n%s\n...", ssid.c_str());
+    lv_label_set_text(wifi_status_label, buf);
+    lv_scr_load(dial_wifi_status);
+    lv_obj_invalidate(dial_wifi_status);
+}
+
+void DisplayManager::updateWifiConnecting(int dots) {
+    if (!wifi_status_label) return;
+    String text = "Connecting";
+    for (int i = 0; i < dots % 4; i++) text += ".";
+    lv_label_set_text(wifi_status_label, text.c_str());
+    lv_obj_invalidate(dial_wifi_status);
+}
+
+void DisplayManager::showWifiResult(const String& msg, bool ok) {
+    if (!wifi_status_label) return;
+    lv_label_set_text(wifi_status_label, msg.c_str());
+    lv_obj_set_style_text_color(wifi_status_label,
+        ok ? lv_palette_main(LV_PALETTE_GREEN) : lv_palette_main(LV_PALETTE_RED), 0);
+    lv_obj_invalidate(dial_wifi_status);
+}
+
+void DisplayManager::showWifiOnStartPage(bool connected, const String& ssid) {
+    if (!connected) {
+        if (wifi_start_icon) {
+            lv_obj_del(wifi_start_icon);
+            wifi_start_icon = nullptr;
+        }
+        return;
+    }
+    if (!wifi_start_icon) {
+        wifi_start_icon = lv_img_create(lv_scr_act());
+        lv_img_set_src(wifi_start_icon, Image_wifi_on);
+        lv_obj_align(wifi_start_icon, LV_ALIGN_TOP_RIGHT, -10, 10);
+    }
+lv_obj_clear_flag(wifi_start_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_invalidate(wifi_start_icon);
+}
