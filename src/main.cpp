@@ -84,7 +84,8 @@ std::vector<MenuItem> rootMenu = {
 MenuItem* currentMenu = nullptr;
 
 enum UIMode { StartPage, MainMenu, SecondMenu, Volume, TorqueSet,
-              WifiList, WifiPassword, WifiConnecting, WifiResult };
+              WifiList, WifiPassword, WifiConnecting, WifiResult,
+              WifiAction };
 UIMode CurrentUIMode = StartPage;
 
 // ---------- WiFi state ----------
@@ -106,6 +107,19 @@ std::vector<int> wifiScanRSSI;
 void wifiScanTask(void *p) {
   wifiScanFound.clear();
   wifiScanRSSI.clear();
+  // 已连接/连接中状态可能让扫描返回 0; 临时断开扫描 (不擦 NVS)
+  bool wasConnected = (WiFi.status() == WL_CONNECTED);
+  String savedSSID = wasConnected ? WiFi.SSID() : String("");
+  String savedPASS = "";
+  if (wasConnected) {
+    // 先记录密码以便扫描后重连
+    wifiMgr.loadStored();
+    for (int i = 0; i < wifiMgr.storedCount(); i++) {
+      if (wifiMgr.storedAt(i).ssid == savedSSID) { savedPASS = wifiMgr.storedAt(i).pass; break; }
+    }
+    WiFi.disconnect(false);
+    delay(200);
+  }
   int n = WiFi.scanNetworks();
   for (int i = 0; i < n; i++) {
     String s = WiFi.SSID(i);
@@ -119,6 +133,11 @@ void wifiScanTask(void *p) {
     wifiScanRSSI.push_back(WiFi.RSSI(i));
   }
   WiFi.scanDelete();
+  // 恢复连接
+  if (wasConnected) {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(savedSSID.c_str(), savedPASS.c_str());
+  }
   wifiScanDone = true;
   vTaskDelete(NULL);
 }
@@ -451,20 +470,20 @@ void osTask(void *pvParameters) {
               }
             }
             if (pass.length() > 0) {
-              // 已存密码直接连
-              CurrentUIMode = WifiConnecting;
+              // 有已存密码 -> 进入 Action 菜单让用户选 CONNECT / DISCONNECT
+              bool isCurrent = (WiFi.status() == WL_CONNECTED &&
+                                WiFi.SSID() == wifiSelectedSSID);
+              CurrentUIMode = WifiAction;
               UIUpdated = false;
-              wifiConnectStartMs = millis();
-              display.showWifiConnecting(wifiSelectedSSID);
-              WiFi.mode(WIFI_STA);
-              WiFi.begin(wifiSelectedSSID.c_str(), pass.c_str());
+              wifiCharIdx = isCurrent ? 1 : 0;   // 默认选中第一项 (DISCONNECT/CONNECT)
+              display.initWifiActionDisplay(wifiSelectedSSID, isCurrent, wifiCharIdx);
             } else {
               // 跳到密码输入
               CurrentUIMode = WifiPassword;
               UIUpdated = false;
               wifiPasswordBuf = "";
-              wifiCharIdx = 0;
-              display.initWifiPasswordDisplay(wifiSelectedSSID, "", 0);
+              wifiCharIdx = 1;   // 默认在 CONNECT
+              display.initWifiPasswordDisplay(wifiSelectedSSID, "", 1);
             }
           }
         }
@@ -551,6 +570,57 @@ void osTask(void *pvParameters) {
           UIUpdated = false;
           display.showWifiResult("Failed to connect", false);
           wifiConnectStartMs = millis();
+        }
+        break;
+      }
+
+      case WifiAction: {
+        int g = motor_manager.GetCurrentGear() % 2;
+        if (g != wifiCharIdx) {
+          wifiCharIdx = g;
+          display.updateWifiActionDisplay(g);
+        }
+        if (PressedFlag) {
+          PressedFlag = false;
+          wifiMgr.loadStored();
+          String pass = "";
+          for (int i = 0; i < wifiMgr.storedCount(); i++) {
+            if (wifiMgr.storedAt(i).ssid == wifiSelectedSSID) {
+              pass = wifiMgr.storedAt(i).pass; break;
+            }
+          }
+          bool isCurrent = (WiFi.status() == WL_CONNECTED &&
+                            WiFi.SSID() == wifiSelectedSSID);
+          int action = isCurrent ? wifiCharIdx : (1 - wifiCharIdx);
+          // action: 0 = CONNECT, 1 = DISCONNECT (无论 isCurrent 怎么排序)
+          if (action == 0) {
+            CurrentUIMode = WifiConnecting;
+            UIUpdated = false;
+            wifiConnectStartMs = millis();
+            display.showWifiConnecting(wifiSelectedSSID);
+            WiFi.mode(WIFI_STA);
+            WiFi.begin(wifiSelectedSSID.c_str(), pass.c_str());
+          } else {
+            // DISCONNECT
+            WiFi.disconnect(true);
+            wifiConnectedSSID = "";
+            display.showWifiOnStartPage(false, "");
+            CurrentUIMode = WifiList;
+            UIUpdated = false;
+            wifiScanDone = false;
+            wifiNets.clear();
+            for (int i = 0; i < wifiMgr.storedCount(); i++) {
+              wifiNets.push_back(std::make_pair(wifiMgr.storedAt(i).ssid, 0));
+            }
+            xTaskCreate(wifiScanTask, "WiFiScan", 4096, NULL, 1, NULL);
+            display.initWifiListDisplay(wifiNets);
+          }
+        }
+        if (PushbuttonPressed) {
+          PushbuttonPressed = false;
+          CurrentUIMode = WifiList;
+          UIUpdated = false;
+          display.initWifiListDisplay(wifiNets);
         }
         break;
       }

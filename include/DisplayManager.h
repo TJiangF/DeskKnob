@@ -66,6 +66,8 @@ public:
     void showWifiResult(const String& msg, bool ok);
 
     void showWifiOnStartPage(bool connected, const String& ssid);
+    void initWifiActionDisplay(const String& ssid, bool isCurrent, int sel);
+    void updateWifiActionDisplay(int sel);
 
 private:
     lv_obj_t* dial_wifi_list = nullptr;

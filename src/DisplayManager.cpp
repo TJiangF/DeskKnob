@@ -571,3 +571,72 @@ void DisplayManager::showWifiOnStartPage(bool connected, const String& ssid) {
 lv_obj_clear_flag(wifi_start_icon, LV_OBJ_FLAG_HIDDEN);
     lv_obj_invalidate(wifi_start_icon);
 }
+
+void DisplayManager::initWifiActionDisplay(const String& ssid, bool isCurrent, int sel) {
+    if (!dial_wifi_status) {
+        dial_wifi_status = lv_obj_create(NULL);
+        lv_obj_set_size(dial_wifi_status, 240, 240);
+        lv_obj_set_style_bg_color(dial_wifi_status, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(dial_wifi_status, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(dial_wifi_status, 0, 0);
+
+        wifi_status_label = lv_label_create(dial_wifi_status);
+        lv_obj_align(wifi_status_label, LV_ALIGN_TOP_MID, 0, 12);
+        lv_obj_set_style_text_color(wifi_status_label, lv_palette_lighten(LV_PALETTE_GREY, 2), 0);
+    }
+    lv_label_set_text(wifi_status_label, ssid.c_str());
+
+    // 用 wifi_list_labels 复用做选项 (CONNECT / DISCONNECT)
+    // dial_wifi_status 不一定有 wifi_list_labels, 直接在 dial_wifi_status 上加 2 个
+    static lv_obj_t* opt0 = nullptr;
+    static lv_obj_t* opt1 = nullptr;
+    if (!opt0 || lv_obj_get_parent(opt0) != dial_wifi_status) {
+        opt0 = lv_label_create(dial_wifi_status);
+        lv_obj_align(opt0, LV_ALIGN_TOP_MID, 0, 80);
+        lv_obj_set_style_text_font(opt0, &lv_font_montserrat_20, 0);
+        opt1 = lv_label_create(dial_wifi_status);
+        lv_obj_align(opt1, LV_ALIGN_TOP_MID, 0, 120);
+        lv_obj_set_style_text_font(opt1, &lv_font_montserrat_20, 0);
+    }
+    if (isCurrent) {
+        lv_label_set_text(opt0, "> DISCONNECT");
+        lv_label_set_text(opt1, "  CONNECT");
+    } else {
+        lv_label_set_text(opt0, "> CONNECT");
+        lv_label_set_text(opt1, "  DISCONNECT");
+    }
+    lv_obj_set_style_text_color(opt0, lv_palette_main(LV_PALETTE_BLUE), 0);
+    lv_obj_set_style_text_color(opt1, lv_color_white(), 0);
+    lv_obj_clear_flag(opt0, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(opt1, LV_OBJ_FLAG_HIDDEN);
+
+    lv_scr_load(dial_wifi_status);
+    lv_obj_invalidate(dial_wifi_status);
+}
+
+void DisplayManager::updateWifiActionDisplay(int sel) {
+    if (!dial_wifi_status) return;
+    if (lv_scr_act() != dial_wifi_status) lv_scr_load(dial_wifi_status);
+    // 切换 sel 时高亮互换; sel=0 -> 第一行 CONNECT/DISCONNECT, sel=1 -> 第二行
+    // 这里简单地通过重新构造来实现 — 复杂度低
+    // 还原选中文本互叠
+    lv_obj_t* old0 = lv_obj_get_child(dial_wifi_status, 1);
+    lv_obj_t* old1 = lv_obj_get_child(dial_wifi_status, 2);
+    const char* txt0 = lv_label_get_text(old0);
+    const char* txt1 = lv_label_get_text(old1);
+    // 剥离前缀 > 简洁实现: 直接重新各自加前缀
+    String t0 = txt0 + 2;  // 跳过 "> "
+    String t1 = txt1 + 2;
+    if (sel == 0) {
+        lv_label_set_text(old0, ("> " + t0).c_str());
+        lv_label_set_text(old1, ("  " + t1).c_str());
+        lv_obj_set_style_text_color(old0, lv_palette_main(LV_PALETTE_BLUE), 0);
+        lv_obj_set_style_text_color(old1, lv_color_white(), 0);
+    } else {
+        lv_label_set_text(old0, ("  " + t0).c_str());
+        lv_label_set_text(old1, ("> " + t1).c_str());
+        lv_obj_set_style_text_color(old0, lv_color_white(), 0);
+        lv_obj_set_style_text_color(old1, lv_palette_main(LV_PALETTE_BLUE), 0);
+    }
+    lv_obj_invalidate(dial_wifi_status);
+}
