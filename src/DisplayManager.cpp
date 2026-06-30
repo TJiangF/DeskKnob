@@ -471,13 +471,17 @@ void DisplayManager::initWifiPasswordDisplay(const String& ssid, const String& p
         lv_obj_set_style_text_font(wifi_pwd_label, &lv_font_montserrat_20, 0);
 
         wifi_char_label = lv_label_create(dial_wifi_pwd);
-        lv_obj_align(wifi_char_label, LV_ALIGN_TOP_MID, 0, 100);
+        lv_obj_set_width(wifi_char_label, 200);
+        lv_obj_align(wifi_char_label, LV_ALIGN_TOP_MID, 0, 95);
+        lv_obj_set_style_text_align(wifi_char_label, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_font(wifi_char_label, &lv_font_montserrat_20, 0);
         lv_obj_set_style_text_color(wifi_char_label, lv_palette_main(LV_PALETTE_GREEN), 0);
 
         lv_obj_t* hint = lv_label_create(dial_wifi_pwd);
-        lv_label_set_text(hint, "Turn=pick  Press=add\nBtn=back");
-        lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 145);
+        lv_label_set_text(hint, "Turn=pick  Press=add  Btn=back");
+        lv_obj_set_width(hint, 220);
+        lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 150);
+        lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_color(hint, lv_palette_lighten(LV_PALETTE_GREY, 2), 0);
         lv_obj_set_user_data(dial_wifi_pwd, hint);
     }
