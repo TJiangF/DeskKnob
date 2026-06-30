@@ -97,6 +97,31 @@ String wifiResultMsg;
 String wifiConnectedSSID;       // 已连接的 SSID（StartPage 用）
 std::vector<std::pair<String,int>> wifiNets;   // WifiList 显示列表
 uint32_t wifiConnectStartMs = 0;
+
+// 异步扫描任务通知
+volatile bool wifiScanDone = false;
+std::vector<String> wifiScanFound;
+std::vector<int> wifiScanRSSI;
+
+void wifiScanTask(void *p) {
+  wifiScanFound.clear();
+  wifiScanRSSI.clear();
+  int n = WiFi.scanNetworks();
+  for (int i = 0; i < n; i++) {
+    String s = WiFi.SSID(i);
+    if (s.length() == 0) continue;
+    bool dup = false;
+    for (size_t k = 0; k < wifiScanFound.size(); k++) {
+      if (wifiScanFound[k] == s) { dup = true; break; }
+    }
+    if (dup) continue;
+    wifiScanFound.push_back(s);
+    wifiScanRSSI.push_back(WiFi.RSSI(i));
+  }
+  WiFi.scanDelete();
+  wifiScanDone = true;
+  vTaskDelete(NULL);
+}
 bool UIUpdated = false;
 int32_t UIswitch_time = 0;
 int VolumeChange = 0;
@@ -288,14 +313,13 @@ void osTask(void *pvParameters) {
               motor_manager.updateGearnum(20);
               wifiSelectedSSIDIndex = 0;
               wifiMgr.loadStored();
-              int n = wifiMgr.scan();
               wifiNets.clear();
+              wifiScanDone = false;
               for (int i = 0; i < wifiMgr.storedCount(); i++) {
                 wifiNets.push_back(std::make_pair(wifiMgr.storedAt(i).ssid, 0));
               }
-              for (int i = 0; i < n; i++) {
-                wifiNets.push_back(std::make_pair(wifiMgr.scanAt(i), wifiMgr.scanRSSI(i)));
-              }
+              // 异步扫描 (避免 osTask 阻塞触发 watchdog)
+              xTaskCreate(wifiScanTask, "WiFiScan", 4096, NULL, 1, NULL);
               wifiPasswordBuf = "";
               wifiCharIdx = 0;
               display.initWifiListDisplay(wifiNets);
@@ -389,6 +413,22 @@ void osTask(void *pvParameters) {
     // ---- WiFi sub-state machines ----
     switch (CurrentUIMode) {
       case WifiList: {
+        // 异步扫描完成后合并结果到列表
+        if (wifiScanDone) {
+          wifiScanDone = false;
+          Serial.printf("[WiFi] scan done: %u found\n", (unsigned)wifiScanFound.size());
+          for (size_t i = 0; i < wifiScanFound.size(); i++) {
+            Serial.printf("  %s @ %d dBm\n", wifiScanFound[i].c_str(), wifiScanRSSI[i]);
+          }
+          for (size_t i = 0; i < wifiScanFound.size(); i++) {
+            bool dup = false;
+            for (size_t k = 0; k < wifiNets.size(); k++) {
+              if (wifiNets[k].first == wifiScanFound[i]) { dup = true; break; }
+            }
+            if (!dup) wifiNets.push_back(std::make_pair(wifiScanFound[i], wifiScanRSSI[i]));
+          }
+          display.updateWifiListDisplay(wifiNets, wifiSelectedSSIDIndex);
+        }
         // 用 gear 切换选中项
         int g = motor_manager.GetCurrentGear();
         if (g >= (int)wifiNets.size()) g = (int)wifiNets.size() - 1;
