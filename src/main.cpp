@@ -480,8 +480,7 @@ void osTask(void *pvParameters) {
       }
 
       case WifiPassword: {
-        // 字符表: index 0 = ✓(确认), 1..76 = 字符, 末尾再额外一个 ⌫(删除)
-        // 共 78 项, gear 直接 mod 78
+        // 字符表: 0=EXIT, 1=CONNECT, 2..77 = 字符 0..75 (76字符), 共78项
         int g = motor_manager.GetCurrentGear();
         wifiCharIdx = g % 78;
         static int lastCharUpdate = -1;
@@ -492,23 +491,22 @@ void osTask(void *pvParameters) {
         if (PressedFlag) {
           PressedFlag = false;
           if (wifiCharIdx == 0) {
-            // ✓ 确认连接
+            // EXIT -> 退回 WifiList
+            CurrentUIMode = WifiList;
+            UIUpdated = false;
+            display.initWifiListDisplay(wifiNets);
+          } else if (wifiCharIdx == 1) {
+            // CONNECT -> 确认连接
             CurrentUIMode = WifiConnecting;
             UIUpdated = false;
             wifiConnectStartMs = millis();
             display.showWifiConnecting(wifiSelectedSSID);
             WiFi.mode(WIFI_STA);
             WiFi.begin(wifiSelectedSSID.c_str(), wifiPasswordBuf.c_str());
-          } else if (wifiCharIdx == 77) {
-            // ⌫ 删除最后一个字符
-            if (wifiPasswordBuf.length() > 0) {
-              wifiPasswordBuf.remove(wifiPasswordBuf.length() - 1);
-              display.updateWifiPasswordDisplay(wifiPasswordBuf, wifiCharIdx);
-            }
           } else {
-            // 1..76 -> 字符 0..75
+            // 2..77 -> 字符
             const char* WIFI_CHARSET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*-_+=?";
-            char ch = WIFI_CHARSET[wifiCharIdx - 1];
+            char ch = WIFI_CHARSET[wifiCharIdx - 2];
             wifiPasswordBuf += ch;
             display.updateWifiPasswordDisplay(wifiPasswordBuf, wifiCharIdx);
           }
@@ -519,6 +517,7 @@ void osTask(void *pvParameters) {
             wifiPasswordBuf.remove(wifiPasswordBuf.length() - 1);
             display.updateWifiPasswordDisplay(wifiPasswordBuf, wifiCharIdx);
           } else {
+            // 空密码按 Btn -> EXIT
             CurrentUIMode = WifiList;
             UIUpdated = false;
             display.initWifiListDisplay(wifiNets);

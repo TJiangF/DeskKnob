@@ -462,24 +462,24 @@ void DisplayManager::initWifiPasswordDisplay(const String& ssid, const String& p
         lv_obj_set_style_border_width(dial_wifi_pwd, 0, 0);
 
         wifi_ssid_label = lv_label_create(dial_wifi_pwd);
-        lv_obj_align(wifi_ssid_label, LV_ALIGN_TOP_MID, 0, 8);
+        lv_obj_align(wifi_ssid_label, LV_ALIGN_TOP_MID, 0, 12);
         lv_obj_set_style_text_color(wifi_ssid_label, lv_palette_lighten(LV_PALETTE_GREY, 2), 0);
 
         wifi_pwd_label = lv_label_create(dial_wifi_pwd);
-        lv_obj_align(wifi_pwd_label, LV_ALIGN_TOP_MID, 0, 50);
+        lv_obj_align(wifi_pwd_label, LV_ALIGN_TOP_MID, 0, 55);
         lv_obj_set_style_text_color(wifi_pwd_label, lv_color_white(), 0);
         lv_obj_set_style_text_font(wifi_pwd_label, &lv_font_montserrat_20, 0);
 
         wifi_char_label = lv_label_create(dial_wifi_pwd);
-        lv_obj_align(wifi_char_label, LV_ALIGN_TOP_MID, 0, 110);
+        lv_obj_align(wifi_char_label, LV_ALIGN_TOP_MID, 0, 100);
         lv_obj_set_style_text_font(wifi_char_label, &lv_font_montserrat_20, 0);
         lv_obj_set_style_text_color(wifi_char_label, lv_palette_main(LV_PALETTE_GREEN), 0);
 
         lv_obj_t* hint = lv_label_create(dial_wifi_pwd);
-        lv_label_set_text(hint, "Turn=pick  Press=add\nLeft=OK  Right=DEL  Btn=back");
-        lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
+        lv_label_set_text(hint, "Turn=pick  Press=add\nBtn=back");
+        lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 145);
         lv_obj_set_style_text_color(hint, lv_palette_lighten(LV_PALETTE_GREY, 2), 0);
-        lv_obj_set_user_data(dial_wifi_pwd, hint);   // 保存 hint
+        lv_obj_set_user_data(dial_wifi_pwd, hint);
     }
     char ssidBuf[80];
     snprintf(ssidBuf, sizeof(ssidBuf), "SSID: %s", ssid.c_str());
@@ -503,12 +503,12 @@ void DisplayManager::updateWifiPasswordDisplay(const String& pwd, int charSel) {
     else display = pwd;
     lv_label_set_text(wifi_pwd_label, display.c_str());
 
-    // charSel 0 = "✓", 77 = "⌫", 1..76 = 字符 0..75
+    // charSel 0 = EXIT, 1 = CONNECT, 2..77 = 字符 0..75
     const char* show;
-    if (charSel == 0) show = "OK";              // 确认
-    else if (charSel == 77) show = "DEL";        // 删除
+    if (charSel == 0) show = "EXIT";              // 退出
+    else if (charSel == 1) show = "CONNECT";      // 确认连接
     else {
-        char ch = WIFI_CHARSET[(charSel - 1) % WIFI_CHARSET_LEN];
+        char ch = WIFI_CHARSET[(charSel - 2) % WIFI_CHARSET_LEN];
         char buf[2] = {ch, 0};
         lv_label_set_text(wifi_char_label, buf);
         lv_obj_invalidate(dial_wifi_pwd);
