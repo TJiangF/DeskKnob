@@ -713,15 +713,8 @@ void setup() {
   motor_manager.init();
   Serial.println("motor_manager.init OK");
 
-  // 自动重连已存 WiFi (后台异步连接, 不阻塞启动)
-  WiFi.mode(WIFI_STA);
-  wifiMgr.loadStored();
-  if (wifiMgr.storedCount() > 0) {
-    Serial.printf("[WiFi] auto-reconnect to stored #%d: %s\n",
-                  0, wifiMgr.storedAt(0).ssid.c_str());
-    WiFi.begin(wifiMgr.storedAt(0).ssid.c_str(),
-               wifiMgr.storedAt(0).pass.c_str());
-  }
+  // 不在启动自动重连 WiFi (WiFi.getInternalIPStack 需要 IPC1 栈, 与 motor
+  // FOC task 抢栈空间触发 stack canary). 让用户主动通过 Settings->WiFi 连.
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   HX.begin();
@@ -733,9 +726,9 @@ void setup() {
 
   motor_manager.setGearChangeCallback(onGearChange);
 
-  xTaskCreatePinnedToCore(motorControlTask, "Motor", 8192, NULL, 2, NULL, 1);
+  xTaskCreatePinnedToCore(motorControlTask, "Motor", 12288, NULL, 2, NULL, 1);
   xTaskCreatePinnedToCore(hx710ProcessingTask, "HX710", 2048, NULL, 1, NULL, 0);
-  xTaskCreatePinnedToCore(osTask, "OS", 8192, NULL, 2, NULL, 0);
+  xTaskCreatePinnedToCore(osTask, "OS", 12288, NULL, 2, NULL, 0);
 
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), handleButtonPress, FALLING);
   Serial.println("setup done");
