@@ -631,6 +631,16 @@ void setup() {
   motor_manager.init();
   Serial.println("motor_manager.init OK");
 
+  // 自动重连已存 WiFi (后台异步连接, 不阻塞启动)
+  WiFi.mode(WIFI_STA);
+  wifiMgr.loadStored();
+  if (wifiMgr.storedCount() > 0) {
+    Serial.printf("[WiFi] auto-reconnect to stored #%d: %s\n",
+                  0, wifiMgr.storedAt(0).ssid.c_str());
+    WiFi.begin(wifiMgr.storedAt(0).ssid.c_str(),
+               wifiMgr.storedAt(0).pass.c_str());
+  }
+
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   HX.begin();
   calculateBaseline();
