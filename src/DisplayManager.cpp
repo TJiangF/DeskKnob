@@ -403,13 +403,15 @@ void DisplayManager::initWifiListDisplay(const std::vector<std::pair<String,int>
         lv_obj_set_style_bg_color(dial_wifi_list, lv_color_black(), 0);
         lv_obj_set_style_bg_opa(dial_wifi_list, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(dial_wifi_list, 0, 0);
-        lv_obj_set_style_pad_all(dial_wifi_list, 6, 0);
+        lv_obj_set_style_pad_all(dial_wifi_list, 0, 0);
         lv_obj_set_scrollbar_mode(dial_wifi_list, LV_SCROLLBAR_MODE_OFF);
-        for (int i = 0; i < 8; i++) {
+
+        // 5 行列表，画布高度 5*28 = 140，居中 y=50..190（避开圆形顶部与底部角落）
+        for (int i = 0; i < 5; i++) {
             wifi_list_labels[i] = lv_label_create(dial_wifi_list);
             lv_obj_set_style_text_color(wifi_list_labels[i], lv_color_white(), 0);
             lv_label_set_text(wifi_list_labels[i], "");
-            lv_obj_align(wifi_list_labels[i], LV_ALIGN_TOP_LEFT, 4, 4 + i * 24);
+            lv_obj_align(wifi_list_labels[i], LV_ALIGN_TOP_MID, 0, 50 + i * 28);
         }
     }
     updateWifiListDisplay(nets, 0);
@@ -419,21 +421,33 @@ void DisplayManager::updateWifiListDisplay(const std::vector<std::pair<String,in
     if (!dial_wifi_list) return;
     if (lv_scr_act() != dial_wifi_list) lv_scr_load(dial_wifi_list);
     int n = (int)nets.size();
-    if (n > 8) n = 8;
-    for (int i = 0; i < 8; i++) {
+    int show = 5;                       // 5 行 (上下 2 行 + 中间高亮)
+    int start = sel - 2;                // sel 居中
+    if (start < 0) start = 0;
+    if (start + show > n) {
+        start = n - show;
+        if (start < 0) start = 0;
+    }
+    for (int row = 0; row < 5; row++) {
+        int i = start + row;
         if (i < n) {
             char buf[64];
-            snprintf(buf, sizeof(buf), "%s %s %ddBm",
-                     (i == sel ? ">" : " "),
-                     nets[i].first.c_str(),
-                     nets[i].second);
-            lv_label_set_text(wifi_list_labels[i], buf);
-            lv_obj_set_style_text_color(wifi_list_labels[i],
+            const char* prefix = (i == sel) ? "> " : "  ";
+            // 截断长 SSID 以适配 240px 圆屏
+            String ssid = nets[i].first;
+            if (ssid.length() > 16) ssid = ssid.substring(0, 15) + ".";
+            if (nets[i].second != 0) {
+                snprintf(buf, sizeof(buf), "%s%s %ddBm", prefix, ssid.c_str(), nets[i].second);
+            } else {
+                snprintf(buf, sizeof(buf), "%s%s", prefix, ssid.c_str());
+            }
+            lv_label_set_text(wifi_list_labels[row], buf);
+            lv_obj_set_style_text_color(wifi_list_labels[row],
                 (i == sel) ? lv_palette_main(LV_PALETTE_BLUE) : lv_color_white(), 0);
-            lv_obj_clear_flag(wifi_list_labels[i], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(wifi_list_labels[row], LV_OBJ_FLAG_HIDDEN);
         } else {
-            lv_label_set_text(wifi_list_labels[i], "");
-            lv_obj_add_flag(wifi_list_labels[i], LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(wifi_list_labels[row], "");
+            lv_obj_add_flag(wifi_list_labels[row], LV_OBJ_FLAG_HIDDEN);
         }
     }
     lv_obj_invalidate(dial_wifi_list);
@@ -462,7 +476,7 @@ void DisplayManager::initWifiPasswordDisplay(const String& ssid, const String& p
         lv_obj_set_style_text_color(wifi_char_label, lv_palette_main(LV_PALETTE_GREEN), 0);
 
         lv_obj_t* hint = lv_label_create(dial_wifi_pwd);
-        lv_label_set_text(hint, "Turn = pick char\nPress = add\nBtn = back");
+        lv_label_set_text(hint, "Turn=pick  Press=add\nLeft=OK  Right=DEL  Btn=back");
         lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
         lv_obj_set_style_text_color(hint, lv_palette_lighten(LV_PALETTE_GREY, 2), 0);
         lv_obj_set_user_data(dial_wifi_pwd, hint);   // 保存 hint
@@ -489,9 +503,18 @@ void DisplayManager::updateWifiPasswordDisplay(const String& pwd, int charSel) {
     else display = pwd;
     lv_label_set_text(wifi_pwd_label, display.c_str());
 
-    char ch = WIFI_CHARSET[charSel % WIFI_CHARSET_LEN];
-    char buf[2] = {ch, 0};
-    lv_label_set_text(wifi_char_label, buf);
+    // charSel 0 = "✓", 77 = "⌫", 1..76 = 字符 0..75
+    const char* show;
+    if (charSel == 0) show = "OK";              // 确认
+    else if (charSel == 77) show = "DEL";        // 删除
+    else {
+        char ch = WIFI_CHARSET[(charSel - 1) % WIFI_CHARSET_LEN];
+        char buf[2] = {ch, 0};
+        lv_label_set_text(wifi_char_label, buf);
+        lv_obj_invalidate(dial_wifi_pwd);
+        return;
+    }
+    lv_label_set_text(wifi_char_label, show);
 
     lv_obj_invalidate(dial_wifi_pwd);
 }

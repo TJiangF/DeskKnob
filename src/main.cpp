@@ -480,31 +480,35 @@ void osTask(void *pvParameters) {
       }
 
       case WifiPassword: {
-        // 用 gear 切换字符
+        // 字符表: index 0 = ✓(确认), 1..76 = 字符, 末尾再额外一个 ⌫(删除)
+        // 共 78 项, gear 直接 mod 78
         int g = motor_manager.GetCurrentGear();
-        wifiCharIdx = g % 76;   // 0..75 (字符表长度)
+        wifiCharIdx = g % 78;
         static int lastCharUpdate = -1;
         if (wifiCharIdx != lastCharUpdate) {
           display.updateWifiPasswordDisplay(wifiPasswordBuf, wifiCharIdx);
           lastCharUpdate = wifiCharIdx;
         }
         if (PressedFlag) {
-          // 旋钮按压力可在 LVGL 不刷新时直接计算 sensor 角度
           PressedFlag = false;
-          // 按 1.5s 长按为确认连接，否则追加一个字符
-          uint32_t holdTime = millis() - lastPressTime;
-          if (holdTime > 1500) {
-            // 长按 → 确认连接
+          if (wifiCharIdx == 0) {
+            // ✓ 确认连接
             CurrentUIMode = WifiConnecting;
             UIUpdated = false;
             wifiConnectStartMs = millis();
             display.showWifiConnecting(wifiSelectedSSID);
             WiFi.mode(WIFI_STA);
             WiFi.begin(wifiSelectedSSID.c_str(), wifiPasswordBuf.c_str());
+          } else if (wifiCharIdx == 77) {
+            // ⌫ 删除最后一个字符
+            if (wifiPasswordBuf.length() > 0) {
+              wifiPasswordBuf.remove(wifiPasswordBuf.length() - 1);
+              display.updateWifiPasswordDisplay(wifiPasswordBuf, wifiCharIdx);
+            }
           } else {
-            // 短按 → 追加当前字符
+            // 1..76 -> 字符 0..75
             const char* WIFI_CHARSET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*-_+=?";
-            char ch = WIFI_CHARSET[wifiCharIdx];
+            char ch = WIFI_CHARSET[wifiCharIdx - 1];
             wifiPasswordBuf += ch;
             display.updateWifiPasswordDisplay(wifiPasswordBuf, wifiCharIdx);
           }
@@ -512,11 +516,9 @@ void osTask(void *pvParameters) {
         if (PushbuttonPressed) {
           PushbuttonPressed = false;
           if (wifiPasswordBuf.length() > 0) {
-            // 回删一个字符
             wifiPasswordBuf.remove(wifiPasswordBuf.length() - 1);
             display.updateWifiPasswordDisplay(wifiPasswordBuf, wifiCharIdx);
           } else {
-            // 已是空 → 退回 WifiList
             CurrentUIMode = WifiList;
             UIUpdated = false;
             display.initWifiListDisplay(wifiNets);
@@ -555,17 +557,28 @@ void osTask(void *pvParameters) {
       }
 
       case WifiResult: {
-        // 显示 2 秒后自动返回 Settings 二级菜单
+        // 显示 2 秒后自动返回; 成功回 Settings, 失败回 WifiList 让用户重新选
         if (millis() - wifiConnectStartMs > 2000 || PushbuttonPressed) {
           PushbuttonPressed = false;
-          CurrentUIMode = SecondMenu;
-          UIUpdated = false;
-          currentMenu = &rootMenu[3];
-          menuManager.enterMainMenu(torqueSetValue, currentMenu->subMenu.size());
-          display.initMainMenuDisplay(currentMenu->subMenu);
-          // StartPage 装饰会在校验 StartPage 时通过 wifiMgr.isConnected() 触发
-          if (wifiConnectedSSID.length() > 0) {
+          bool wasOk = wifiMgr.isConnected();
+          if (wasOk) {
+            CurrentUIMode = SecondMenu;
+            UIUpdated = false;
+            currentMenu = &rootMenu[3];
+            menuManager.enterMainMenu(torqueSetValue, currentMenu->subMenu.size());
+            display.initMainMenuDisplay(currentMenu->subMenu);
             display.showWifiOnStartPage(true, wifiConnectedSSID);
+          } else {
+            // 失败 -> 退回 WifiList (重新扫描)
+            CurrentUIMode = WifiList;
+            UIUpdated = false;
+            wifiScanDone = false;
+            wifiNets.clear();
+            for (int i = 0; i < wifiMgr.storedCount(); i++) {
+              wifiNets.push_back(std::make_pair(wifiMgr.storedAt(i).ssid, 0));
+            }
+            xTaskCreate(wifiScanTask, "WiFiScan", 4096, NULL, 1, NULL);
+            display.initWifiListDisplay(wifiNets);
           }
         }
         break;

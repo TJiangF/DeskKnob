@@ -69,7 +69,7 @@ public:
 
 private:
     lv_obj_t* dial_wifi_list = nullptr;
-    lv_obj_t* wifi_list_labels[8] = {nullptr};
+    lv_obj_t* wifi_list_labels[5] = {nullptr};
     lv_obj_t* dial_wifi_pwd = nullptr;
     lv_obj_t* wifi_ssid_label = nullptr;
     lv_obj_t* wifi_pwd_label = nullptr;
