@@ -1,0 +1,20 @@
+## DeskKnob application component dependencies
+dependencies:
+  idf:
+    version: ">=5.3"
+
+  # --- Display / UI ---
+  espressif/esp_lvgl_port:
+    version: "^2.9.0"
+  espressif/esp_lcd_gc9a01:
+    version: "^2.0.4"
+  lvgl/lvgl:
+    version: "^9.2.0"
+
+  # --- Motor (SimpleFOC port for ESP-IDF, supports 6PWM on MCPWM) ---
+  espressif/esp_simplefoc:
+    version: "^1.4.1"
+
+  # --- Addressable LED ring ---
+  espressif/led_strip:
+    version: "^3.0.0"
