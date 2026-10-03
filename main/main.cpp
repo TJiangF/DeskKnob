@@ -15,6 +15,8 @@
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "esp_idf_version.h"
+#include "esp_chip_info.h"
+#include "esp_flash.h"
 #include "nvs_flash.h"
 
 #include "settings.h"
@@ -42,6 +44,30 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     ESP_LOGI(TAG, "DeskKnob booting (ESP-IDF %s)", esp_get_idf_version());
+
+    /* ---- module capability report (flash / PSRAM) ---- */
+    {
+        esp_chip_info_t chip;
+        esp_chip_info(&chip);
+        ESP_LOGI(TAG, "chip: %s rev v%d.%d, %d core(s), wifi=%d ble=%d",
+                 CONFIG_IDF_TARGET, chip.revision / 100, chip.revision % 100,
+                 chip.cores, chip.features & CHIP_FEATURE_WIFI_BGN,
+                 chip.features & CHIP_FEATURE_BLE);
+
+        uint32_t flash_size = 0;
+        esp_flash_get_size(NULL, &flash_size);
+        ESP_LOGI(TAG, "flash: %u MB (%u bytes)", (unsigned)(flash_size / (1024 * 1024)), (unsigned)flash_size);
+
+        size_t psram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+        if (psram > 0) {
+            ESP_LOGI(TAG, "psram: %u MB (%u bytes), free=%u",
+                     (unsigned)(psram / (1024 * 1024)), (unsigned)psram,
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        } else {
+            ESP_LOGW(TAG, "psram: not detected / not enabled");
+        }
+    }
+
     ESP_ERROR_CHECK(settings_init());
 
     ESP_ERROR_CHECK(display_init());
