@@ -27,9 +27,12 @@
 #include "motor.h"
 #include "led_ring.h"
 #include "wifi_mgr.h"
+#include "wifi_provision.h"
 #include "settings.h"
 #include "salary.h"
 #include "balance.h"
+#include "clock_time.h"
+#include "battery.h"
 #include "media.h"
 
 static const char *TAG = "ui";
@@ -38,12 +41,65 @@ static const char *TAG = "ui";
 #define M_PI 3.14159265358979323846
 #endif
 
-/* ---- palette (dark, round-screen friendly) ---- */
-#define C_FG      lv_color_hex(0xFFFFFF)
-#define C_MUTED   lv_color_hex(0x8A8A8E)
-#define C_ACCENT  lv_color_hex(0x2E9BFF)
-#define C_ACCENT2 lv_color_hex(0x18E0A0)
-#define C_CARD    lv_color_hex(0x1C1C1E)
+/* ---- runtime theme palette ----------------------------------------------
+ * C_FG / C_MUTED / C_ACCENT / C_ACCENT2 / C_CARD / C_BG are variables so the
+ * whole UI can switch between dark and light at runtime. theme_apply() sets
+ * them and rebuilds the current page.
+ */
+typedef struct {
+    lv_color_t bg;
+    lv_color_t fg;
+    lv_color_t muted;
+    lv_color_t card;
+    lv_color_t accent;
+    lv_color_t accent2;
+    uint32_t   id;          /* persisted theme id */
+} theme_t;
+
+static const theme_t THEME_DARK = {
+    .bg = LV_COLOR_MAKE(0x00, 0x00, 0x00),
+    .fg = LV_COLOR_MAKE(0xFF, 0xFF, 0xFF),
+    .muted = LV_COLOR_MAKE(0x8A, 0x8A, 0x8E),
+    .card = LV_COLOR_MAKE(0x1C, 0x1C, 0x1E),
+    .accent = LV_COLOR_MAKE(0x2E, 0x9B, 0xFF),
+    .accent2 = LV_COLOR_MAKE(0x18, 0xE0, 0xA0),
+    .id = 0,
+};
+
+static const theme_t THEME_LIGHT = {
+    .bg = LV_COLOR_MAKE(0xF2, 0xF2, 0xF7),
+    .fg = LV_COLOR_MAKE(0x11, 0x11, 0x14),
+    .muted = LV_COLOR_MAKE(0x6B, 0x6B, 0x72),
+    .card = LV_COLOR_MAKE(0xE0, 0xE0, 0xE6),
+    .accent = LV_COLOR_MAKE(0x0A, 0x76, 0xE0),
+    .accent2 = LV_COLOR_MAKE(0x0B, 0x9E, 0x74),
+    .id = 1,
+};
+
+static lv_color_t C_BG;
+static lv_color_t C_FG;
+static lv_color_t C_MUTED;
+static lv_color_t C_CARD;
+static lv_color_t C_ACCENT;
+static lv_color_t C_ACCENT2;
+static uint32_t s_theme_id;
+
+static const theme_t *theme_by_id(uint32_t id)
+{
+    return (id == THEME_LIGHT.id) ? &THEME_LIGHT : &THEME_DARK;
+}
+
+static void theme_load_colors(uint32_t id)
+{
+    const theme_t *t = theme_by_id(id);
+    s_theme_id = id;
+    C_BG = t->bg;
+    C_FG = t->fg;
+    C_MUTED = t->muted;
+    C_CARD = t->card;
+    C_ACCENT = t->accent;
+    C_ACCENT2 = t->accent2;
+}
 
 static lv_obj_t *s_scr;
 
@@ -54,12 +110,15 @@ typedef enum {
     P_TOOLS,
     P_SALARY,
     P_SETTINGS,
+    P_THEME,
+    P_MOTOR,
     P_LED,
     P_LED_MODE,
     P_RATCHET,
     P_WIFI,
     P_WIFI_PASS,
     P_WIFI_ACTION,
+    P_WIFI_SETUP,
     P_BALANCE,
     P_SALARY_COUNTER,
     P_VOLUME,
@@ -79,6 +138,7 @@ static lv_obj_t *s_page_cont;
 static void page_build(page_t p);
 static void nav_push(page_t p);
 static void nav_pop(void);
+static void build_wifi_setup(void);
 static void lcd_bright_change(int v);
 static void pick_settings(int i);
 static void wifi_populate(void);
@@ -93,6 +153,8 @@ static void build_salary_counter(void);
 static lv_obj_t *s_home[HOME_N];
 static lv_obj_t *s_home_lbl[HOME_N];
 static lv_obj_t *s_home_center;
+static lv_obj_t *s_home_time;
+static lv_obj_t *s_home_batt_arc;
 static int s_home_sel;
 static int s_home_pos100;
 static bool s_home_active;
@@ -149,7 +211,7 @@ static lv_obj_t *make_screen(void)
     lv_obj_t *scr = lv_obj_create(s_root);
     lv_obj_set_size(scr, 240, 240);
     lv_obj_set_pos(scr, 0, 0);
-    lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
+    lv_obj_set_style_bg_color(scr, C_BG, 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(scr, 0, 0);
     lv_obj_set_style_pad_all(scr, 0, 0);
@@ -280,7 +342,7 @@ static void home_layout(void)
 
         lv_obj_set_style_bg_color(s_home[i], selected ? C_ACCENT : C_CARD, 0);
         lv_obj_set_style_bg_opa(s_home[i], selected ? LV_OPA_COVER : LV_OPA_70, 0);
-        lv_obj_set_style_text_color(s_home_lbl[i], selected ? lv_color_white() : C_MUTED, 0);
+        lv_obj_set_style_text_color(s_home_lbl[i], selected ? C_FG : C_MUTED, 0);
 
         /* glow emphasises the selected icon */
         lv_obj_set_style_shadow_width(s_home[i], selected ? 24 : 0, 0);
@@ -365,6 +427,39 @@ static void build_home(void)
     lv_obj_set_style_text_color(s_home_center, C_FG, 0);
     lv_obj_align(s_home_center, LV_ALIGN_CENTER, 0, 0);
 
+    /* bottom-left: clock (curved along the ~7 o'clock arc), pulled 5px inward.
+     * Pivot stays at the label centre so the rotation is a clean tilt that
+     * follows the rim tangent. */
+    s_home_time = lv_label_create(s_scr);
+    lv_label_set_text(s_home_time, "12:12");
+    lv_obj_set_style_text_font(s_home_time, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_home_time, C_MUTED, 0);
+    lv_obj_update_layout(s_home_time);
+    lv_obj_set_style_transform_pivot_x(s_home_time, lv_obj_get_width(s_home_time) / 2, 0);
+    lv_obj_set_style_transform_pivot_y(s_home_time, lv_obj_get_height(s_home_time) / 2, 0);
+    lv_obj_set_style_transform_rotation(s_home_time, 320, 0); /* -40 deg tangent */
+    lv_obj_align(s_home_time, LV_ALIGN_CENTER, -63, 79);
+
+    /* bottom-right: curved battery arc, hugging the rim from 4 to 5 o'clock.
+     * LVGL angle convention: 0 = 3 o'clock, 90 = 6 o'clock. So the lower-right
+     * sector between 5 o'clock (~30 deg) and 4 o'clock (~60 deg) is 30..60.
+     * The arc's own rectangle is centred on the screen so its radius matches
+     * the wheel rim. */
+    s_home_batt_arc = lv_arc_create(s_scr);
+    lv_obj_set_size(s_home_batt_arc, 200, 200);
+    lv_obj_align(s_home_batt_arc, LV_ALIGN_CENTER, 0, 0);
+    lv_arc_set_rotation(s_home_batt_arc, 0);
+    lv_obj_set_style_arc_width(s_home_batt_arc, 6, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_home_batt_arc, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(s_home_batt_arc, C_CARD, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s_home_batt_arc, C_ACCENT2, LV_PART_INDICATOR);
+    lv_obj_remove_style(s_home_batt_arc, NULL, LV_PART_KNOB);
+    lv_obj_remove_flag(s_home_batt_arc, LV_OBJ_FLAG_CLICKABLE);
+    /* 5 o'clock .. 4 o'clock (fills upward towards the right) */
+    lv_arc_set_bg_angles(s_home_batt_arc, 30, 60);
+    lv_arc_set_range(s_home_batt_arc, 0, 100);
+    lv_arc_set_value(s_home_batt_arc, battery_get() < 0 ? 0 : battery_get());
+
     home_layout();
 }
 
@@ -393,7 +488,7 @@ static void list_update(int sel, bool animate)
         bool on = (i == sel);
         lv_obj_set_style_bg_color(s_list_rows[i], on ? C_ACCENT : C_CARD, 0);
         lv_obj_set_style_bg_opa(s_list_rows[i], on ? LV_OPA_COVER : LV_OPA_40, 0);
-        lv_obj_set_style_text_color(s_list_lbl[i], on ? lv_color_white() : C_MUTED, 0);
+        lv_obj_set_style_text_color(s_list_lbl[i], on ? C_FG : C_MUTED, 0);
         lv_obj_set_style_text_font(s_list_lbl[i], on ? &lv_font_montserrat_20 : &lv_font_montserrat_18, 0);
     }
 
@@ -552,6 +647,30 @@ static void build_editor(void)
  *  wifi password entry
  * ==================================================================== */
 
+static void build_wifi_setup(void)
+{
+    s_scr = make_screen();
+    add_title(s_scr, "Phone Setup");
+
+    lv_obj_t *l = lv_label_create(s_scr);
+    lv_label_set_text_fmt(l,
+        "1. On your phone connect to\n\n"
+        "     " WIFI_PROV_AP_SSID "\n\n"
+        "2. Open  http://192.168.4.1/\n\n"
+        "3. Pick Wi-Fi & enter password");
+    lv_obj_set_width(l, 210);
+    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(l, C_FG, 0);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
+    lv_obj_center(l);
+
+    lv_obj_t *hint = lv_label_create(s_scr);
+    lv_label_set_text(hint, "Press to stop");
+    lv_obj_set_style_text_color(hint, C_MUTED, 0);
+    lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -26);
+}
+
 static lv_obj_t *s_pwd_lbl;
 static lv_obj_t *s_pwd_char_lbl;
 
@@ -627,12 +746,10 @@ static void pick_music(int i)
     };
     if (i >= 0 && i < 3) {
         media_send(map[i]);
-        motor_shake(2.0f, 30);
     } else if (i == 3) {
         nav_push(P_VOLUME);
     } else if (i == 4) {
         media_send(MEDIA_MUTE);
-        motor_shake(2.0f, 30);
     }
 }
 
@@ -845,7 +962,38 @@ static void pick_settings(int i)
         open_editor("LCD brightness", "%", display_get_brightness(), 0, 100, 5, lcd_bright_change);
     } else if (i == 3) {
         nav_push(P_RATCHET);
+    } else if (i == 4) {
+        /* Start the phone provisioning AP and show instructions. */
+        wifi_provision_start();
+        nav_push(P_WIFI_SETUP);
+    } else if (i == 5) {
+        nav_push(P_MOTOR);
+    } else if (i == 6) {
+        nav_push(P_THEME);
     }
+}
+
+static void pick_theme(int i)
+{
+    uint32_t id = (i == 1) ? THEME_LIGHT.id : THEME_DARK.id;
+    if (id != s_theme_id) {
+        theme_load_colors(id);
+        settings_set_int(SET_THEME, (int32_t)id);
+        /* Rebuild the settings menu in the new colors. */
+        s_nav_depth = s_nav_depth > 1 ? s_nav_depth - 1 : 1;
+        page_build(P_SETTINGS);
+        transition_to(s_scr, true);
+    }
+}
+
+static void build_theme(void)
+{
+    list_begin("Theme");
+    list_add("Dark");
+    list_add("Light");
+    s_list_pick = pick_theme;
+    list_finish();
+    list_update(s_theme_id == THEME_LIGHT.id ? 1 : 0, false);
 }
 
 static void build_settings(void)
@@ -855,7 +1003,74 @@ static void build_settings(void)
     list_add(LV_SYMBOL_WIFI "   WiFi");
     list_add(LV_SYMBOL_EYE_OPEN "   LCD Brightness");
     list_add(LV_SYMBOL_LOOP "   Ratchet Feel");
+    list_add(LV_SYMBOL_KEYBOARD "   WiFi Phone Setup");
+    list_add(LV_SYMBOL_SETTINGS "   Motor Tuning");
+    list_add(LV_SYMBOL_IMAGE "   Theme");
     s_list_pick = pick_settings;
+    list_finish();
+}
+
+/* ---- motor tuning page (persisted drive parameters) ---- */
+static void mt_voltage(int v)  { motor_set_voltage_limit((float)v / 10.0f);
+                                 settings_set_int(SET_MOTOR_VOLTAGE, v); }
+static void mt_current(int v)  { motor_set_current_limit((float)v / 100.0f);
+                                 settings_set_int(SET_MOTOR_CURRENT, v); }
+static void mt_vellim(int v)   { motor_set_velocity_limit((float)v);
+                                 settings_set_int(SET_MOTOR_VEL_LIMIT, v); }
+static void mt_kp(int v)       { motor_set_kp_angle((float)v / 10.0f);
+                                 settings_set_int(SET_MOTOR_KP_ANGLE, v); }
+static void mt_pid_p(int v)    { float p, i, d, r; motor_get_pid_velocity(&p, &i, &d, &r);
+                                 motor_set_pid_velocity((float)v / 1000.0f, i, d, r);
+                                 settings_set_int(SET_MOTOR_PID_P, v); }
+static void mt_pid_i(int v)    { float p, i, d, r; motor_get_pid_velocity(&p, &i, &d, &r);
+                                 motor_set_pid_velocity(p, (float)v / 100.0f, d, r);
+                                 settings_set_int(SET_MOTOR_PID_I, v); }
+static void mt_pid_d(int v)    { float p, i, d, r; motor_get_pid_velocity(&p, &i, &d, &r);
+                                 motor_set_pid_velocity(p, i, (float)v / 100000.0f, r);
+                                 settings_set_int(SET_MOTOR_PID_D, v); }
+static void mt_ramp(int v)     { float p, i, d, r; motor_get_pid_velocity(&p, &i, &d, &r);
+                                 motor_set_pid_velocity(p, i, d, (float)v);
+                                 settings_set_int(SET_MOTOR_PID_RAMP, v); }
+
+static void pick_motor(int i)
+{
+    float p, iv, d, r;
+    motor_get_pid_velocity(&p, &iv, &d, &r);
+    switch (i) {
+    case 0: open_editor("Drive voltage", "V", (int)(motor_get_voltage_limit() * 10), 5, 33, 1, mt_voltage); break;
+    case 1: open_editor("Current limit", "A", (int)(motor_get_current_limit() * 100), 5, 100, 5, mt_current); break;
+    case 2: open_editor("Velocity limit", "rad/s", (int)motor_get_velocity_limit(), 5, 200, 5, mt_vellim); break;
+    case 3: open_editor("Angle P gain", "x0.1", (int)(motor_get_kp_angle() * 10), 1, 200, 1, mt_kp); break;
+    case 4: open_editor("Vel PID P", "x0.001", (int)(p * 1000), 1, 2000, 5, mt_pid_p); break;
+    case 5: open_editor("Vel PID I", "x0.01", (int)(iv * 100), 0, 2000, 5, mt_pid_i); break;
+    case 6: open_editor("Vel PID D", "x1e-5", (int)(d * 100000), 0, 5000, 5, mt_pid_d); break;
+    case 7: open_editor("Vel ramp", "", (int)r, 10, 1000, 10, mt_ramp); break;
+    }
+}
+
+static void build_motor(void)
+{
+    list_begin("Motor Tuning");
+    char b[40];
+    snprintf(b, sizeof(b), "Voltage    %.1f V", (double)motor_get_voltage_limit());
+    list_add(b);
+    snprintf(b, sizeof(b), "Current    %.2f A", (double)motor_get_current_limit());
+    list_add(b);
+    snprintf(b, sizeof(b), "Vel limit  %d rad/s", (int)motor_get_velocity_limit());
+    list_add(b);
+    snprintf(b, sizeof(b), "Angle P    %.1f", (double)motor_get_kp_angle());
+    list_add(b);
+    float p, iv, d, r;
+    motor_get_pid_velocity(&p, &iv, &d, &r);
+    snprintf(b, sizeof(b), "PID P      %.3f", (double)p);
+    list_add(b);
+    snprintf(b, sizeof(b), "PID I      %.2f", (double)iv);
+    list_add(b);
+    snprintf(b, sizeof(b), "PID D      %.5f", (double)d);
+    list_add(b);
+    snprintf(b, sizeof(b), "PID ramp   %d", (int)r);
+    list_add(b);
+    s_list_pick = pick_motor;
     list_finish();
 }
 
@@ -1090,6 +1305,8 @@ static void page_build(page_t p)
     s_pwd_char_lbl = NULL;
     s_balance_lbl = NULL;
     s_balance_sub = NULL;
+    s_home_time = NULL;
+    s_home_batt_arc = NULL;
 
     switch (p) {
     case P_HOME:        build_home(); break;
@@ -1097,12 +1314,15 @@ static void page_build(page_t p)
     case P_TOOLS:       build_tools(); break;
     case P_SALARY:      build_salary(); break;
     case P_SETTINGS:    build_settings(); break;
+    case P_THEME:       build_theme(); break;
+    case P_MOTOR:       build_motor(); break;
     case P_LED:         build_led(); break;
     case P_LED_MODE:    build_led_mode(); break;
     case P_RATCHET:     build_ratchet(); break;
     case P_WIFI:        build_wifi(); break;
     case P_WIFI_PASS:   build_wifi_pass(); break;
     case P_WIFI_ACTION: build_wifi_action(); break;
+    case P_WIFI_SETUP:  build_wifi_setup(); break;
     case P_BALANCE:     build_balance(); break;
     case P_SALARY_COUNTER: build_salary_counter(); break;
     case P_VOLUME:      build_volume(); break;
@@ -1169,6 +1389,8 @@ static void on_rotate(int delta, int gear)
     case P_TOOLS:
     case P_SALARY:
     case P_SETTINGS:
+    case P_THEME:
+    case P_MOTOR:
     case P_LED:
     case P_LED_MODE:
     case P_RATCHET:
@@ -1182,7 +1404,6 @@ static void on_rotate(int delta, int gear)
 
 static void on_press(void)
 {
-    motor_shake(2.0f, 25);
     switch (s_page) {
     case P_HOME:
         home_enter();
@@ -1191,6 +1412,8 @@ static void on_press(void)
     case P_TOOLS:
     case P_SALARY:
     case P_SETTINGS:
+    case P_THEME:
+    case P_MOTOR:
     case P_LED:
     case P_LED_MODE:
     case P_RATCHET:
@@ -1231,7 +1454,6 @@ static void on_back_hold(void)
 {
     if (s_page == P_SALARY_COUNTER) {
         salary_counter_reset();
-        motor_shake(2.0f, 40);
         salary_counter_render();
         return;
     }
@@ -1242,6 +1464,10 @@ static void on_back(void)
 {
     switch (s_page) {
     case P_HOME:
+        break;
+    case P_WIFI_SETUP:
+        wifi_provision_stop();
+        nav_pop();
         break;
     case P_EDIT:
         if (s_edit.on_change) {
@@ -1298,6 +1524,33 @@ static void wifi_refresh_screen(void)
     transition_to(s_scr, true);
 }
 
+/* Self-healing refresh: if no screen transition animation is running and the
+ * active screen is not being animated, periodically invalidate it so a dropped
+ * SPI flush cannot leave the panel black. */
+static uint32_t s_last_heal_ms;
+
+static void ui_heal_refresh(void)
+{
+    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    if (now - s_last_heal_ms < 1000) {
+        return;
+    }
+    s_last_heal_ms = now;
+    if (lv_anim_count_running() == 0 && s_page_cont) {
+        lv_obj_invalidate(s_page_cont);
+    }
+}
+
+/* Update the home status row. Clock is currently a fixed placeholder; the
+ * battery is a small curved arc with no numeric label. */
+static void home_render_status(void)
+{
+    if (s_home_batt_arc) {
+        int lvl = battery_get();
+        lv_arc_set_value(s_home_batt_arc, lvl < 0 ? 0 : lvl);
+    }
+}
+
 static void ui_tick(void)
 {
     if (s_page == P_WIFI) {
@@ -1309,7 +1562,10 @@ static void ui_tick(void)
         balance_render();
     } else if (s_page == P_SALARY_COUNTER) {
         salary_counter_render();
+    } else if (s_page == P_HOME) {
+        home_render_status();
     }
+    ui_heal_refresh();
 }
 
 /* ======================================================================
@@ -1321,9 +1577,11 @@ static void ui_task(void *arg)
     (void)arg;
     vTaskDelay(pdMS_TO_TICKS(200));
 
+    theme_load_colors((uint32_t)settings_get_int(SET_THEME, 0));
+
     if (display_lock(0)) {
         s_root = lv_obj_create(NULL);
-        lv_obj_set_style_bg_color(s_root, lv_color_black(), 0);
+        lv_obj_set_style_bg_color(s_root, C_BG, 0);
         lv_obj_set_style_bg_opa(s_root, LV_OPA_COVER, 0);
         lv_obj_set_style_pad_all(s_root, 0, 0);
         lv_obj_set_style_border_width(s_root, 0, 0);

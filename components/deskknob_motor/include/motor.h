@@ -42,6 +42,18 @@ int  motor_get_detents(void);
 void  motor_set_stiffness(float k);
 float motor_get_stiffness(void);
 
+/* Live-tunable drive parameters (also persisted by the caller). */
+void  motor_set_voltage_limit(float v);
+float motor_get_voltage_limit(void);
+void  motor_set_current_limit(float a);
+float motor_get_current_limit(void);
+void  motor_set_velocity_limit(float v);
+float motor_get_velocity_limit(void);
+void  motor_set_pid_velocity(float p, float i, float d, float ramp);
+void  motor_get_pid_velocity(float *p, float *i, float *d, float *ramp);
+void  motor_set_kp_angle(float p);
+float motor_get_kp_angle(void);
+
 /* Angle mode target (radians). */
 void motor_set_target_angle(float rad);
 

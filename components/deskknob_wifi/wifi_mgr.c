@@ -166,10 +166,13 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
         }
         case WIFI_EVENT_SCAN_DONE: {
             uint16_t n = 0;
-            esp_wifi_scan_get_ap_num(&n);
+            esp_err_t num_err = esp_wifi_scan_get_ap_num(&n);
+            ESP_LOGI(TAG, "SCAN_DONE event, ap_num err=%s n=%u",
+                     esp_err_to_name(num_err), (unsigned)n);
             wifi_ap_record_t *recs = calloc(n ? n : 1, sizeof(wifi_ap_record_t));
             if (recs) {
-                esp_wifi_scan_get_ap_records(&n, recs);
+                esp_err_t rec_err = esp_wifi_scan_get_ap_records(&n, recs);
+                ESP_LOGI(TAG, "get_ap_records err=%s n=%u", esp_err_to_name(rec_err), (unsigned)n);
                 s_scan_count = 0;
                 for (int i = 0; i < n && s_scan_count < WIFI_SCAN_MAX; i++) {
                     if (recs[i].ssid[0] == '\0') continue;
@@ -215,7 +218,27 @@ esp_err_t wifi_mgr_init(void)
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_wifi_event, NULL, NULL));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+
+    /* A valid country code is required for scanning to enumerate channels. */
+    wifi_country_t country = {
+        .cc = "CN",
+        .schan = 1,
+        .nchan = 13,
+        .policy = WIFI_COUNTRY_POLICY_AUTO,
+    };
+    esp_err_t cerr = esp_wifi_set_country(&country);
+    ESP_LOGI(TAG, "set_country -> %s", esp_err_to_name(cerr));
+
     ESP_ERROR_CHECK(esp_wifi_start());
+
+    wifi_country_t got = {0};
+    if (esp_wifi_get_country(&got) == ESP_OK) {
+        ESP_LOGI(TAG, "country cc=%c%c%c ch=%d-%d", got.cc[0], got.cc[1], got.cc[2], got.schan, got.schan + got.nchan - 1);
+    }
+    uint8_t mac[6];
+    if (esp_wifi_get_mac(WIFI_IF_STA, mac) == ESP_OK) {
+        ESP_LOGI(TAG, "sta mac %02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
 
     s_inited = true;
     ESP_LOGI(TAG, "wifi ready, %d stored network(s)", s_stored_count);

@@ -1,5 +1,6 @@
 #include "motor.h"
 #include "board_pins.h"
+#include "settings.h"
 
 #include <math.h>
 #include "freertos/FreeRTOS.h"
@@ -56,9 +57,7 @@ esp_err_t motor_init(void)
 
     driver.dead_zone = 0.02f;
     driver.voltage_power_supply = 3.3f;
-    /* Lower phase voltage headroom -> lower peak current / less supply droop
-     * (helps avoid brownouts that blank the shared 3V3 rail). */
-    driver.voltage_limit = 2.6f;
+    driver.voltage_limit = 3.3f;
     if (!driver.init()) {
         ESP_LOGE(TAG, "driver.init failed");
         return ESP_FAIL;
@@ -66,17 +65,19 @@ esp_err_t motor_init(void)
 
     motor.linkDriver(&driver);
     motor.foc_modulation = FOCModulationType::SpaceVectorPWM;
-    motor.PID_velocity.P = 0.15f;
-    motor.PID_velocity.I = 5.0f;
-    motor.PID_velocity.D = 0.001f;
-    /* Gentler ramps reduce di/dt and instantaneous current draw. */
-    motor.PID_velocity.output_ramp = 100.0f;
     motor.LPF_velocity.Tf = 0.05f;
-    motor.voltage_limit = 2.6f;
-    motor.current_limit = 0.25f;
-    motor.P_angle.P = 7.0f;
-    motor.velocity_limit = 40.0f;
     motor.controller = MotionControlType::angle;
+
+    /* Load persisted drive parameters (fall back to the historical defaults). */
+    driver.voltage_limit = (float)settings_get_int(SET_MOTOR_VOLTAGE, 33) / 10.0f;
+    motor.voltage_limit = driver.voltage_limit;
+    motor.current_limit = (float)settings_get_int(SET_MOTOR_CURRENT, 50) / 100.0f;
+    motor.velocity_limit = (float)settings_get_int(SET_MOTOR_VEL_LIMIT, 60);
+    motor.PID_velocity.P = (float)settings_get_int(SET_MOTOR_PID_P, 150) / 1000.0f;
+    motor.PID_velocity.I = (float)settings_get_int(SET_MOTOR_PID_I, 500) / 100.0f;
+    motor.PID_velocity.D = (float)settings_get_int(SET_MOTOR_PID_D, 100) / 100000.0f;
+    motor.PID_velocity.output_ramp = (float)settings_get_int(SET_MOTOR_PID_RAMP, 200);
+    motor.P_angle.P = (float)settings_get_int(SET_MOTOR_KP_ANGLE, 70) / 10.0f;
 
     motor.init();
     motor.initFOC();
@@ -131,6 +132,57 @@ void motor_set_stiffness(float k)
 
 float motor_get_stiffness(void) { return s_torque_k; }
 
+void motor_set_voltage_limit(float v)
+{
+    if (v < 0.5f) v = 0.5f;
+    if (v > 3.3f) v = 3.3f;
+    motor.voltage_limit = v;
+    driver.voltage_limit = v;
+}
+
+float motor_get_voltage_limit(void) { return motor.voltage_limit; }
+
+void motor_set_current_limit(float a)
+{
+    if (a < 0.05f) a = 0.05f;
+    if (a > 1.0f) a = 1.0f;
+    motor.current_limit = a;
+}
+
+float motor_get_current_limit(void) { return motor.current_limit; }
+
+void motor_set_velocity_limit(float v)
+{
+    if (v < 1.0f) v = 1.0f;
+    motor.velocity_limit = v;
+}
+
+float motor_get_velocity_limit(void) { return motor.velocity_limit; }
+
+void motor_set_pid_velocity(float p, float i, float d, float ramp)
+{
+    motor.PID_velocity.P = p;
+    motor.PID_velocity.I = i;
+    motor.PID_velocity.D = d;
+    motor.PID_velocity.output_ramp = ramp;
+}
+
+void motor_get_pid_velocity(float *p, float *i, float *d, float *ramp)
+{
+    if (p) *p = motor.PID_velocity.P;
+    if (i) *i = motor.PID_velocity.I;
+    if (d) *d = motor.PID_velocity.D;
+    if (ramp) *ramp = motor.PID_velocity.output_ramp;
+}
+
+void motor_set_kp_angle(float p)
+{
+    if (p < 0.0f) p = 0.0f;
+    motor.P_angle.P = p;
+}
+
+float motor_get_kp_angle(void) { return motor.P_angle.P; }
+
 void motor_set_target_angle(float rad) { s_target_angle = rad; }
 
 float motor_get_angle(void) { return sensor.getAngle(); }
@@ -140,11 +192,11 @@ float motor_get_velocity(void) { return sensor.getVelocity(); }
 int motor_get_gear(void) { return s_gear; }
 int motor_get_gear_limit(void) { return s_gear_limit; }
 
+/* Vibration feedback disabled by request; kept as a no-op API. */
 void motor_shake(float strength, uint32_t duration_ms)
 {
-    s_shake_strength = strength;
-    s_shake_until_us = esp_timer_get_time() + (int64_t)duration_ms * 1000;
-    s_shake_active = true;
+    (void)strength;
+    (void)duration_ms;
 }
 
 void motor_set_gear_callback(motor_gear_cb_t cb, void *user)
@@ -168,12 +220,8 @@ void motor_set_enabled(bool enabled)
 static void motor_task(void *arg)
 {
     (void)arg;
-    /* Prime the FOC state at zero torque first, so initFOC()'s alignment
-     * sweep and the first control frames do not slam full voltage. */
-    motor.move(0.0f);
     while (!s_ready) {
-        motor.loopFOC();
-        vTaskDelay(pdMS_TO_TICKS(5));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 
     for (;;) {
@@ -227,11 +275,9 @@ static void motor_task(void *arg)
             if (esp_timer_get_time() > s_shake_until_us) {
                 s_shake_active = false;
             } else {
-                /* Gentle oscillating "tick" - keep the amplitude small so the
-                 * torque step does not spike supply current. */
+                /* Oscillating "tick" for tactile confirmation. */
                 int phase = (int)(esp_timer_get_time() / 25000) & 1;
-                float a = s_shake_strength * 0.5f;
-                motor.move(phase ? a : -a);
+                motor.move(phase ? s_shake_strength : -s_shake_strength);
             }
         }
 

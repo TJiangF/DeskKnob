@@ -9,6 +9,7 @@ sdkconfig
 sdkconfig.old
 sdkconfig.ci
 sdkconfig.*
+!sdkconfig.defaults
 
 # ESP-IDF component manager
 managed_components/

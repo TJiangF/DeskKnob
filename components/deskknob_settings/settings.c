@@ -16,6 +16,7 @@ typedef struct {
 } setting_desc_t;
 
 static const setting_desc_t s_desc[SET_SETTING_COUNT] = {
+    [SET_THEME]            = {"theme",        0},
     [SET_LCD_BRIGHTNESS]   = {"lcd_bright",   80},
     [SET_LED_ENABLED]      = {"led_en",       1},
     [SET_LED_MODE]         = {"led_mode",     1},   /* 1 = rainbow */
@@ -25,6 +26,14 @@ static const setting_desc_t s_desc[SET_SETTING_COUNT] = {
     [SET_LED_COLOR_B]      = {"led_b",        255},
     [SET_RATCHET_DETENTS]  = {"ratchet_n",    24},
     [SET_RATCHET_STIFFNESS] = {"ratchet_k",   50},  /* 5.0 */
+    [SET_MOTOR_VOLTAGE]    = {"mot_v",        33},  /* 3.3 V   */
+    [SET_MOTOR_CURRENT]    = {"mot_i",        50},  /* 0.50 A  */
+    [SET_MOTOR_VEL_LIMIT]  = {"mot_vlim",     60},  /* 60 rad/s */
+    [SET_MOTOR_PID_P]      = {"mot_pp",       150},  /* 0.15 */
+    [SET_MOTOR_PID_I]      = {"mot_pi",       500},  /* 5.0  */
+    [SET_MOTOR_PID_D]      = {"mot_pd",       100},  /* 0.001 */
+    [SET_MOTOR_PID_RAMP]   = {"mot_ramp",     200},
+    [SET_MOTOR_KP_ANGLE]   = {"mot_kpa",      70},   /* 7.0 */
     [SET_SALARY_RATE]      = {"sal_rate",     1000000}, /* monthly 10000.00 yuan */
     [SET_SALARY_HOURS]     = {"sal_hours",    80},    /* 8.0 h/day */
     [SET_SALARY_DAYS]      = {"sal_days",     218},   /* 21.8 d/month */

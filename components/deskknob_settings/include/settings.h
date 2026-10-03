@@ -17,7 +17,8 @@ extern "C" {
 #define SETTINGS_STR_MAX 64
 
 typedef enum {
-    SET_LCD_BRIGHTNESS = 0,  /* int 0..100 */
+    SET_THEME = 0,           /* int 0=dark 1=light */
+    SET_LCD_BRIGHTNESS,      /* int 0..100 */
     SET_LED_ENABLED,         /* int 0/1   */
     SET_LED_MODE,            /* int       */
     SET_LED_BRIGHTNESS,      /* int 0..100 */
@@ -26,6 +27,14 @@ typedef enum {
     SET_LED_COLOR_B,         /* int 0..255 */
     SET_RATCHET_DETENTS,     /* int 2..60 */
     SET_RATCHET_STIFFNESS,   /* int x10   */
+    SET_MOTOR_VOLTAGE,       /* int x10 volts (driver+motor voltage limit) */
+    SET_MOTOR_CURRENT,       /* int x100 A (motor.current_limit) */
+    SET_MOTOR_VEL_LIMIT,     /* int rad/s (motor.velocity_limit) */
+    SET_MOTOR_PID_P,         /* int x1000 */
+    SET_MOTOR_PID_I,         /* int x100 */
+    SET_MOTOR_PID_D,         /* int x100000 */
+    SET_MOTOR_PID_RAMP,      /* int (output_ramp) */
+    SET_MOTOR_KP_ANGLE,      /* int x10 (P_angle.P) */
     SET_SALARY_RATE,         /* int  yuan/hour x100 */
     SET_SALARY_HOURS,        /* int  hours x10 */
     SET_SALARY_DAYS,         /* int  days x10 */

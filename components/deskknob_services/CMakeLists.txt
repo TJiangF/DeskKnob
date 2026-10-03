@@ -3,12 +3,17 @@ idf_component_register(
         "balance.c"
         "salary.c"
         "media.c"
+        "clock_time.c"
+        "battery.c"
     INCLUDE_DIRS "include"
     REQUIRES
         deskknob_settings
         deskknob_wifi
         esp_http_client
         esp-tls
+        esp_wifi
+        esp_netif
+        esp_event
         espressif__cjson
         esp_timer
         mbedtls

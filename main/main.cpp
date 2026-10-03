@@ -25,9 +25,12 @@
 #include "wifi_mgr.h"
 #include "balance.h"
 #include "media.h"
+#include "clock_time.h"
 #include "ui.h"
 
 static const char *TAG = "deskknob";
+
+extern "C" void wifi_cli_start(void);
 
 extern "C" void app_main(void)
 {
@@ -59,10 +62,14 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(wifi_mgr_init());
     ESP_ERROR_CHECK(balance_service_init());
     ESP_ERROR_CHECK(media_init());
+    ESP_ERROR_CHECK(clock_time_init());
 
     ESP_ERROR_CHECK(ui_start());
 
-    ESP_LOGI(TAG, "boot complete, free heap=%u", (unsigned)esp_get_free_heap_size());
+    wifi_cli_start();
+
+    ESP_LOGI(TAG, "boot complete, free heap=%u (type 'help' for WiFi CLI)",
+             (unsigned)esp_get_free_heap_size());
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
