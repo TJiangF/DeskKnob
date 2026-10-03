@@ -434,11 +434,14 @@ static void build_home(void)
     lv_label_set_text(s_home_time, "12:12");
     lv_obj_set_style_text_font(s_home_time, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_home_time, C_MUTED, 0);
+    /* Rotate the text 45 deg so it follows the lower-left arc tangent; rotate
+     * about the label centre so the ':' stays at the 225 deg radial point
+     * (centre sits on the x = -y diagonal through the screen centre). */
     lv_obj_update_layout(s_home_time);
     lv_obj_set_style_transform_pivot_x(s_home_time, lv_obj_get_width(s_home_time) / 2, 0);
     lv_obj_set_style_transform_pivot_y(s_home_time, lv_obj_get_height(s_home_time) / 2, 0);
-    lv_obj_set_style_transform_rotation(s_home_time, 320, 0); /* -40 deg tangent */
-    lv_obj_align(s_home_time, LV_ALIGN_CENTER, -63, 79);
+    lv_obj_set_style_transform_rotation(s_home_time, 450, 0); /* +45 deg */
+    lv_obj_align(s_home_time, LV_ALIGN_CENTER, -72, 72);
 
     /* bottom-right: curved battery arc, hugging the rim from 4 to 5 o'clock.
      * LVGL angle convention: 0 = 3 o'clock, 90 = 6 o'clock. So the lower-right
@@ -446,7 +449,7 @@ static void build_home(void)
      * The arc's own rectangle is centred on the screen so its radius matches
      * the wheel rim. */
     s_home_batt_arc = lv_arc_create(s_scr);
-    lv_obj_set_size(s_home_batt_arc, 200, 200);
+    lv_obj_set_size(s_home_batt_arc, 204, 204);   /* radius +2px outward */
     lv_obj_align(s_home_batt_arc, LV_ALIGN_CENTER, 0, 0);
     lv_arc_set_rotation(s_home_batt_arc, 0);
     lv_obj_set_style_arc_width(s_home_batt_arc, 6, LV_PART_MAIN);
