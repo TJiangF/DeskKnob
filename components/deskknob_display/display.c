@@ -116,14 +116,14 @@ esp_err_t display_init(void)
     const lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     ESP_RETURN_ON_ERROR(lvgl_port_init(&port_cfg), TAG, "lvgl port");
 
-    /* Draw buffers stay in internal DMA-capable RAM. PSRAM-backed LVGL buffers
-     * would need cache write-back before the SPI DMA reads them and flicker on
-     * this panel; internal RAM is the safe choice. PSRAM remains available for
-     * other allocations (images/decoders). */
+    /* Frame buffers live in internal DMA-capable RAM. To get a smoother refresh
+     * we use a taller buffer (60 lines, double-buffered = ~57KB) which fits in
+     * internal RAM and reduces the number of flush transactions. (PSRAM-backed
+     * buffers are unsupported on this SPI panel and are not used.) */
     lvgl_port_display_cfg_t disp_cfg = {
         .io_handle = io,
         .panel_handle = s_panel,
-        .buffer_size = BOARD_LCD_H_RES * 40,
+        .buffer_size = BOARD_LCD_H_RES * 60,
         .double_buffer = true,
         .hres = BOARD_LCD_H_RES,
         .vres = BOARD_LCD_V_RES,
