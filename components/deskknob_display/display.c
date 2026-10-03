@@ -113,7 +113,10 @@ esp_err_t display_init(void)
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG, "disp on");
 
     /* ---- LVGL port ---- */
-    const lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    /* Pin LVGL's task to core 0 (with the UI/input tasks) so it never competes
+     * with the real-time FOC loop, which owns core 1. */
+    lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    port_cfg.task_affinity = 0;
     ESP_RETURN_ON_ERROR(lvgl_port_init(&port_cfg), TAG, "lvgl port");
 
     /* Frame buffers live in internal DMA-capable RAM. To get a smoother refresh

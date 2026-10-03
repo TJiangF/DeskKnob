@@ -135,7 +135,8 @@ esp_err_t led_ring_init(void)
 
 esp_err_t led_ring_start_task(void)
 {
-    BaseType_t ok = xTaskCreate(led_task, "led_ring", 3072, NULL, 3, NULL);
+    /* Keep LED animation on core 0 alongside the UI. */
+    BaseType_t ok = xTaskCreatePinnedToCore(led_task, "led_ring", 3072, NULL, 3, NULL, 0);
     return ok == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
