@@ -116,15 +116,14 @@ esp_err_t display_init(void)
     const lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     ESP_RETURN_ON_ERROR(lvgl_port_init(&port_cfg), TAG, "lvgl port");
 
-    bool have_psram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0;
-    /* With PSRAM we can afford a bigger, double-buffered draw area. The buffer
-     * is not DMA-capable from PSRAM, so use it only when PSRAM is present. */
-    uint32_t buf_px = have_psram ? (BOARD_LCD_H_RES * 100) : (BOARD_LCD_H_RES * 40);
-
+    /* Draw buffers stay in internal DMA-capable RAM. PSRAM-backed LVGL buffers
+     * would need cache write-back before the SPI DMA reads them and flicker on
+     * this panel; internal RAM is the safe choice. PSRAM remains available for
+     * other allocations (images/decoders). */
     lvgl_port_display_cfg_t disp_cfg = {
         .io_handle = io,
         .panel_handle = s_panel,
-        .buffer_size = buf_px,
+        .buffer_size = BOARD_LCD_H_RES * 40,
         .double_buffer = true,
         .hres = BOARD_LCD_H_RES,
         .vres = BOARD_LCD_V_RES,
@@ -136,8 +135,7 @@ esp_err_t display_init(void)
         },
         .color_format = LV_COLOR_FORMAT_RGB565,
         .flags = {
-            .buff_dma = !have_psram,
-            .buff_spiram = have_psram,
+            .buff_dma = true,
             .swap_bytes = true,
         },
     };

@@ -287,6 +287,6 @@ static void motor_task(void *arg)
 
 esp_err_t motor_start_task(void)
 {
-    BaseType_t ok = xTaskCreatePinnedToCore(motor_task, "motor", 8192, NULL, 20, NULL, 1);
+    BaseType_t ok = xTaskCreatePinnedToCore(motor_task, "motor", 8192, NULL, 20, NULL, 0);
     return ok == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
 }

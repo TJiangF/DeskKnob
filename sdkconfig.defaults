@@ -10,16 +10,12 @@ CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
 # ---------- PSRAM (embedded 8MB, octal) ----------
-CONFIG_SPIRAM=y
-CONFIG_SPIRAM_MODE_OCT=y
-CONFIG_SPIRAM_TYPE_AUTO=y
-CONFIG_SPIRAM_SPEED_80M=y
-CONFIG_SPIRAM_USE_MALLOC=y
-CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
-CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
-CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
-CONFIG_SPIRAM_BOOT_INIT=y
-CONFIG_SPIRAM_IGNORE_NOTFOUND=n
+# NOTE: PSRAM is currently DISABLED. With PSRAM enabled the interrupt watchdog
+# (CONFIG_ESP_INT_WDT, CPU1) resets the board right after motor init - the FOC
+# control loop + AS5600 I2C access on CPU1 exceed the 300ms IRQ-off window when
+# the cache is backed by PSRAM. Re-enable only after the FOC/ISR path is made
+# PSRAM-safe (e.g. IRAM_ATTR on the hot path, or moving sensor reads off PSRAM).
+# CONFIG_SPIRAM is not set
 
 # ---------- CPU / FreeRTOS ----------
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
