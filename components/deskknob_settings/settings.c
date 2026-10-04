@@ -34,9 +34,9 @@ static const setting_desc_t s_desc[SET_SETTING_COUNT] = {
     [SET_MOTOR_PID_D]      = {"mot_pd",       100},  /* 0.001 */
     [SET_MOTOR_PID_RAMP]   = {"mot_ramp",     200},
     [SET_MOTOR_KP_ANGLE]   = {"mot_kpa",      70},   /* 7.0 */
-    [SET_SALARY_RATE]      = {"sal_rate",     1000000}, /* monthly 10000.00 yuan */
-    [SET_SALARY_HOURS]     = {"sal_hours",    80},    /* 8.0 h/day */
-    [SET_SALARY_DAYS]      = {"sal_days",     218},   /* 21.8 d/month */
+    [SET_SALARY_RATE]      = {"sal_rate",     500000}, /* monthly 5000.00 yuan */
+    [SET_SALARY_HOURS]     = {"sal_hours",    80},     /* 8.0 h/day */
+    [SET_SALARY_DAYS]      = {"sal_days",     220},    /* 22 d/month */
 };
 
 esp_err_t settings_init(void)
@@ -50,6 +50,20 @@ esp_err_t settings_init(void)
         return err;
     }
     s_ready = true;
+
+    /* One-time migration: the salary units/scales changed; clear the old
+     * sal_* keys once (guarded by a version marker) so the new defaults and
+     * scaling apply. */
+    int32_t ver = 0;
+    if (nvs_get_i32(s_nvs, "cfg_ver", &ver) != ESP_OK || ver < 2) {
+        nvs_erase_key(s_nvs, "sal_rate");
+        nvs_erase_key(s_nvs, "sal_hours");
+        nvs_erase_key(s_nvs, "sal_days");
+        nvs_set_i32(s_nvs, "cfg_ver", 2);
+        nvs_commit(s_nvs);
+        ESP_LOGI(TAG, "settings migrated to cfg_ver 2 (salary keys reset)");
+    }
+
     ESP_LOGI(TAG, "settings ready");
     return ESP_OK;
 }

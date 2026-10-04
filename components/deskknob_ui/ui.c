@@ -156,7 +156,6 @@ static lv_obj_t *s_home_center;
 static lv_obj_t *s_home_time;
 static lv_obj_t *s_home_batt_arc;
 static int s_home_sel;
-static int s_home_pos100;
 static bool s_home_active;
 static const char *s_home_icon[HOME_N] = {
     LV_SYMBOL_AUDIO, LV_SYMBOL_EDIT, LV_SYMBOL_SETTINGS, LV_SYMBOL_CHARGE
@@ -173,7 +172,11 @@ static int s_list_count;
 static int s_list_sel;
 static void (*s_list_pick)(int index);
 
-/* ---- generic editor ---- */
+/* ---- generic editor ----
+ * The editor works on an integer in "editor units". `decimals` controls how
+ * many of those units are shown after the decimal point (0 = integer display,
+ * 1 = x.y). The on_change callback receives the raw editor integer; callers
+ * map it to whatever storage unit they need. */
 typedef struct {
     const char *title;
     const char *unit;
@@ -181,6 +184,7 @@ typedef struct {
     int min;
     int max;
     int step;
+    int decimals;
     void (*on_change)(int v);
 } edit_cfg_t;
 
@@ -301,42 +305,36 @@ static int home_wrap_index(int v)
     return ((v % HOME_N) + HOME_N) % HOME_N;
 }
 
-/* Shortest signed distance between a wheel slot i and the current fractional
- * position, wrapped into [-HOME_N/2, HOME_N/2]. */
-static float home_slot_delta(int i, float pos)
+/* Clock-style angles (0 deg = top, increasing clockwise):
+ *   Music    -> 270 deg (9 o'clock, left)
+ *   Tools    -> 315 deg (upper-left)
+ *   Settings -> 0/360 deg (top)
+ *   Balance  -> 45 deg (upper-right)
+ * In screen coordinates (y down) a clock angle C maps to SCREEN = C - 90:
+ *   Music screen 180 (left), Tools 225, Settings 270 (top), Balance 315.
+ * Icons are FIXED; only the highlight moves when the knob turns. */
+#define HOME_BASE_DEG   180.0f   /* screen-angle for Music (clock 270) */
+#define HOME_STEP_DEG   45.0f
+#define HOME_ICON_SIZE  46
+#define HOME_ICON_HALF  (HOME_ICON_SIZE / 2)
+
+static void home_icon_pos(int i, int *out_x, int *out_y)
 {
-    float slot = (float)i - pos;
-    slot = fmodf(slot, (float)HOME_N);
-    if (slot > HOME_N / 2.0f) {
-        slot -= HOME_N;
-    } else if (slot < -HOME_N / 2.0f) {
-        slot += HOME_N;
-    }
-    return slot;
+    const int R = 72;
+    float ang = (HOME_BASE_DEG + i * HOME_STEP_DEG) * (float)M_PI / 180.0f;
+    int x = (int)lroundf(R * cosf(ang));
+    int y = (int)lroundf(R * sinf(ang));
+    *out_x = 120 + x - HOME_ICON_HALF;
+    *out_y = 120 + y - HOME_ICON_HALF;
 }
 
-static void home_layout(void)
+static void home_set_selected(int sel)
 {
-    if (!s_home_active) {
+    if (!s_home_active || sel < 0 || sel >= HOME_N) {
         return;
     }
-    const int R = 72;
-    const int half = 27;
-    float pos = (float)s_home_pos100 / 100.0f;
-
-    /* Who is nearest the top / centered slot right now. */
-    int centered = home_wrap_index((int)lroundf(pos));
-
     for (int i = 0; i < HOME_N; i++) {
-        float slot = home_slot_delta(i, pos);
-        float ang = (-90.0f + slot * (360.0f / HOME_N)) * (float)M_PI / 180.0f;
-        int x = (int)lroundf(R * cosf(ang));
-        int y = (int)lroundf(R * sinf(ang));
-        lv_obj_set_pos(s_home[i], 120 + x - half, 120 + y - half);
-
-        /* Binary highlight only: the selected icon is larger + glowing, all
-         * others are a fixed small size. No continuous scaling while turning. */
-        bool selected = (i == centered);
+        bool selected = (i == sel);
         float sc = selected ? 1.0f : 0.82f;
         lv_obj_set_style_transform_scale(s_home[i], (int)(256 * sc), 0);
 
@@ -344,41 +342,19 @@ static void home_layout(void)
         lv_obj_set_style_bg_opa(s_home[i], selected ? LV_OPA_COVER : LV_OPA_70, 0);
         lv_obj_set_style_text_color(s_home_lbl[i], selected ? C_FG : C_MUTED, 0);
 
-        /* glow emphasises the selected icon */
         lv_obj_set_style_shadow_width(s_home[i], selected ? 24 : 0, 0);
         lv_obj_set_style_shadow_spread(s_home[i], selected ? 2 : 0, 0);
         lv_obj_set_style_shadow_color(s_home[i], C_ACCENT, 0);
         lv_obj_set_style_shadow_opa(s_home[i], selected ? LV_OPA_80 : LV_OPA_TRANSP, 0);
     }
-
-    lv_label_set_text(s_home_center, s_home_text[centered]);
+    lv_label_set_text(s_home_center, s_home_text[sel]);
 }
 
-static void home_anim_cb(void *var, int32_t v)
-{
-    (void)var;
-    s_home_pos100 = v;
-    home_layout();
-}
-
+/* Kept for API compatibility; the highlight moves instantly (icons fixed). */
 static void home_select_anim(int steps)
 {
-    lv_anim_delete(NULL, home_anim_cb);
-
-    /* Animate to the absolute gear position so the wheel tracks the knob.
-     * s_home_pos100 keeps growing with the (infinite) gear; the layout wraps
-     * it, so we animate directly to gear*100 with no need for shortest-path. */
     (void)steps;
-    int target = motor_get_gear() * 100;
-
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, &s_home_pos100);
-    lv_anim_set_exec_cb(&a, home_anim_cb);
-    lv_anim_set_values(&a, s_home_pos100, target);
-    lv_anim_set_duration(&a, 220);
-    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
-    lv_anim_start(&a);
+    home_set_selected(home_wrap_index(motor_get_gear()));
 }
 
 static void build_home(void)
@@ -386,7 +362,6 @@ static void build_home(void)
     s_scr = make_screen();
     s_home_active = true;
     s_home_sel = 0;
-    s_home_pos100 = 0;
 
     /* 8 tick marks showing the wheel is divided into 8 equal parts */
     for (int k = 0; k < 8; k++) {
@@ -404,18 +379,23 @@ static void build_home(void)
 
     for (int i = 0; i < HOME_N; i++) {
         lv_obj_t *o = lv_obj_create(s_scr);
-        lv_obj_set_size(o, 54, 54);
-        lv_obj_set_style_radius(o, 16, 0);
+        lv_obj_set_size(o, HOME_ICON_SIZE, HOME_ICON_SIZE);
+        lv_obj_set_style_radius(o, 14, 0);
         lv_obj_set_style_border_width(o, 0, 0);
         lv_obj_set_style_shadow_width(o, 0, 0);
-        lv_obj_set_style_transform_pivot_x(o, 27, 0);
-        lv_obj_set_style_transform_pivot_y(o, 27, 0);
+        lv_obj_set_style_transform_pivot_x(o, HOME_ICON_HALF, 0);
+        lv_obj_set_style_transform_pivot_y(o, HOME_ICON_HALF, 0);
         lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
         s_home[i] = o;
 
+        /* Fixed position on the rim. */
+        int px, py;
+        home_icon_pos(i, &px, &py);
+        lv_obj_set_pos(o, px, py);
+
         lv_obj_t *l = lv_label_create(o);
         lv_label_set_text(l, s_home_icon[i]);
-        lv_obj_set_style_text_font(l, &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_font(l, &lv_font_montserrat_24, 0);
         lv_obj_center(l);
         s_home_lbl[i] = l;
     }
@@ -441,7 +421,7 @@ static void build_home(void)
     lv_obj_set_style_transform_pivot_x(s_home_time, lv_obj_get_width(s_home_time) / 2, 0);
     lv_obj_set_style_transform_pivot_y(s_home_time, lv_obj_get_height(s_home_time) / 2, 0);
     lv_obj_set_style_transform_rotation(s_home_time, 450, 0); /* +45 deg */
-    lv_obj_align(s_home_time, LV_ALIGN_CENTER, -72, 72);
+    lv_obj_align(s_home_time, LV_ALIGN_CENTER, -74, 74);
 
     /* bottom-right: curved battery arc, hugging the rim from 4 to 5 o'clock.
      * LVGL angle convention: 0 = 3 o'clock, 90 = 6 o'clock. So the lower-right
@@ -449,7 +429,7 @@ static void build_home(void)
      * The arc's own rectangle is centred on the screen so its radius matches
      * the wheel rim. */
     s_home_batt_arc = lv_arc_create(s_scr);
-    lv_obj_set_size(s_home_batt_arc, 204, 204);   /* radius +2px outward */
+    lv_obj_set_size(s_home_batt_arc, 208, 208);   /* radius +2px outward */
     lv_obj_align(s_home_batt_arc, LV_ALIGN_CENTER, 0, 0);
     lv_arc_set_rotation(s_home_batt_arc, 0);
     lv_obj_set_style_arc_width(s_home_batt_arc, 6, LV_PART_MAIN);
@@ -463,7 +443,8 @@ static void build_home(void)
     lv_arc_set_range(s_home_batt_arc, 0, 100);
     lv_arc_set_value(s_home_batt_arc, battery_get() < 0 ? 0 : battery_get());
 
-    home_layout();
+    s_home_sel = 0;
+    home_set_selected(0);
 }
 
 /* ======================================================================
@@ -578,23 +559,43 @@ static void list_finish(void)
 static lv_obj_t *s_edit_value_lbl;
 static lv_obj_t *s_edit_arc;
 
+static void edit_format(char *out, size_t out_len)
+{
+    int v = s_edit.value;
+    char num[24];
+
+    if (s_edit.decimals == 1) {
+        int whole = v / 10;
+        int frac = v % 10;
+        if (frac < 0) {
+            frac = -frac;
+        }
+        snprintf(num, sizeof(num), "%d.%d", whole, frac);
+    } else {
+        snprintf(num, sizeof(num), "%d", v);
+    }
+
+    if (s_edit.unit && s_edit.unit[0]) {
+        snprintf(out, out_len, "%s %s", num, s_edit.unit);
+    } else {
+        snprintf(out, out_len, "%s", num);
+    }
+}
+
 static void edit_render(void)
 {
     if (!s_edit_value_lbl) {
         return;
     }
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%d", s_edit.value);
+    char buf[40];
+    edit_format(buf, sizeof(buf));
     lv_label_set_text(s_edit_value_lbl, buf);
-    if (s_edit.unit && s_edit.unit[0]) {
-        size_t n = strlen(buf);
-        snprintf(buf + n, sizeof(buf) - n, " %s", s_edit.unit);
-        lv_label_set_text(s_edit_value_lbl, buf);
-    }
-    int span = s_edit.max - s_edit.min;
-    int frac = span > 0 ? (s_edit.value - s_edit.min) * 100 / span : 0;
+
+    /* Arc indicator: map the value onto the arc's own min..max range so the
+     * coloured portion is proportional and always visible. */
     if (s_edit_arc) {
-        lv_arc_set_value(s_edit_arc, frac);
+        lv_arc_set_range(s_edit_arc, s_edit.min, s_edit.max);
+        lv_arc_set_value(s_edit_arc, s_edit.value);
     }
 }
 
@@ -618,17 +619,19 @@ static void build_editor(void)
     add_title(s_scr, s_edit.title);
 
     s_edit_arc = lv_arc_create(s_scr);
-    lv_obj_set_size(s_edit_arc, 170, 170);
-    lv_obj_align(s_edit_arc, LV_ALIGN_CENTER, 0, 8);
+    lv_obj_set_size(s_edit_arc, 180, 180);
+    lv_obj_align(s_edit_arc, LV_ALIGN_CENTER, 0, 6);
     lv_arc_set_rotation(s_edit_arc, 135);
     lv_arc_set_bg_angles(s_edit_arc, 0, 270);
-    lv_arc_set_range(s_edit_arc, 0, 100);
+    lv_arc_set_range(s_edit_arc, s_edit.min, s_edit.max);
+    lv_arc_set_value(s_edit_arc, s_edit.value);
     lv_obj_remove_style(s_edit_arc, NULL, LV_PART_KNOB);
     lv_obj_remove_flag(s_edit_arc, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_arc_width(s_edit_arc, 8, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(s_edit_arc, 8, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(s_edit_arc, 9, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_edit_arc, 9, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(s_edit_arc, C_CARD, LV_PART_MAIN);
     lv_obj_set_style_arc_color(s_edit_arc, C_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(s_edit_arc, LV_OPA_COVER, LV_PART_INDICATOR);
 
     s_edit_value_lbl = lv_label_create(s_scr);
     lv_obj_set_style_text_font(s_edit_value_lbl, &lv_font_montserrat_32, 0);
@@ -820,10 +823,24 @@ static void volume_rotate(int delta)
     }
 }
 
+static void enter_salary_counter(void)
+{
+    if (s_nav_depth < NAV_MAX) {
+        s_nav[s_nav_depth++] = P_SALARY_COUNTER;
+    }
+    page_build(P_SALARY_COUNTER);
+    transition_to(s_scr, true);
+}
+
 static void pick_tools(int i)
 {
     if (i == 0) {
-        nav_push(P_SALARY);
+        /* If the counter is already running, jump straight to it. */
+        if (salary_counter_running()) {
+            enter_salary_counter();
+        } else {
+            nav_push(P_SALARY);
+        }
     }
 }
 
@@ -840,19 +857,19 @@ typedef enum { SAL_MONTHLY = 0, SAL_HOURS, SAL_DAYS } sal_field_t;
 
 static void salary_edit_monthly(int v)
 {
-    salary_set_monthly_cents((int64_t)v * 100); /* editor works in yuan */
+    salary_set_monthly_cents((int64_t)v * 100); /* editor is yuan -> store cents */
 }
 static void salary_edit_hours(int v)
 {
-    salary_set_hours_x10(v);
+    salary_set_hours_x10(v);                    /* editor already x10 (0.1h) */
 }
 static void salary_edit_days(int v)
 {
-    salary_set_days_x10(v);
+    salary_set_days_x10(v * 10);                /* editor is days -> store x10 */
 }
 
 static void open_editor(const char *title, const char *unit, int value, int min, int max,
-                        int step, void (*on_change)(int))
+                        int step, int decimals, void (*on_change)(int))
 {
     s_edit.title = title;
     s_edit.unit = unit;
@@ -860,6 +877,7 @@ static void open_editor(const char *title, const char *unit, int value, int min,
     s_edit.min = min;
     s_edit.max = max;
     s_edit.step = step;
+    s_edit.decimals = decimals;
     s_edit.on_change = on_change;
     s_edit_initial = value;
     nav_push(P_EDIT);
@@ -871,20 +889,32 @@ static void pick_salary(int i)
 {
     switch (i) {
     case SAL_MONTHLY:
+        /* Editor unit = yuan. Default 5000, step 100, range 0..50000. */
         open_editor("Monthly salary", "CNY", (int)(salary_get_monthly_cents() / 100),
-                    0, 100000000, 100, salary_edit_monthly);
+                    0, 50000, 100, 0, salary_edit_monthly);
         break;
     case SAL_HOURS:
-        open_editor("Hours / day", "h", salary_get_hours_x10(), 1, 240, 1, salary_edit_hours);
+        /* Editor unit = 0.1 h. Default 8.0 (80), step 0.5 (5), range 4..12h. */
+        open_editor("Hours / day", "h", salary_get_hours_x10(),
+                    40, 120, 5, 1, salary_edit_hours);
         break;
     case SAL_DAYS:
-        open_editor("Days / month", "d", salary_get_days_x10(), 1, 310, 1, salary_edit_days);
+        /* Editor unit = day. Default 22, step 1, range 18..30. */
+        open_editor("Days / month", "d", salary_get_days_x10() / 10,
+                    18, 30, 1, 0, salary_edit_days);
         break;
     case 3: /* start / open the live counter */
         if (!salary_counter_running()) {
             salary_counter_start();
         }
-        nav_push(P_SALARY_COUNTER);
+        /* Replace the Salary list on the stack so BACK lands on Tools. */
+        if (s_nav_depth > 1 && s_nav[s_nav_depth - 1] == P_SALARY) {
+            s_nav[s_nav_depth - 1] = P_SALARY_COUNTER;
+            page_build(P_SALARY_COUNTER);
+            transition_to(s_scr, true);
+        } else {
+            enter_salary_counter();
+        }
         break;
     }
 }
@@ -899,8 +929,7 @@ static void build_salary(void)
     snprintf(b, sizeof(b), "Hours    %d.%d h/day",
              salary_get_hours_x10() / 10, salary_get_hours_x10() % 10);
     list_add(b);
-    snprintf(b, sizeof(b), "Days     %d.%d d/month",
-             salary_get_days_x10() / 10, salary_get_days_x10() % 10);
+    snprintf(b, sizeof(b), "Days     %d d/month", salary_get_days_x10() / 10);
     list_add(b);
     sprintf(b, "Start earning >>");
     list_add(b);
@@ -912,11 +941,28 @@ static void build_salary(void)
 static lv_obj_t *s_salary_earn_lbl;
 static lv_obj_t *s_salary_time_lbl;
 static lv_obj_t *s_salary_rate_lbl;
+static lv_obj_t *s_salary_params_lbl;
 
 static void build_salary_counter(void)
 {
     s_scr = make_screen();
-    add_title(s_scr, "Earnings");
+
+    /* Parameter summary: three centered lines near the top (clear of the
+     * round bezel). */
+    char params[96];
+    int64_t m = salary_get_monthly_cents();
+    snprintf(params, sizeof(params),
+             "%lld.%02lld CNY/month\n%d.%d h/day\n%d d/month",
+             (long long)(m / 100), (long long)(m % 100),
+             salary_get_hours_x10() / 10, salary_get_hours_x10() % 10,
+             salary_get_days_x10() / 10);
+    s_salary_params_lbl = lv_label_create(s_scr);
+    lv_label_set_text(s_salary_params_lbl, params);
+    lv_obj_set_width(s_salary_params_lbl, 200);
+    lv_obj_set_style_text_align(s_salary_params_lbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(s_salary_params_lbl, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(s_salary_params_lbl, C_MUTED, 0);
+    lv_obj_align(s_salary_params_lbl, LV_ALIGN_TOP_MID, 0, 34);
 
     s_salary_earn_lbl = lv_label_create(s_scr);
     lv_obj_set_style_text_font(s_salary_earn_lbl, &lv_font_montserrat_32, 0);
@@ -929,6 +975,7 @@ static void build_salary_counter(void)
     lv_obj_align(s_salary_time_lbl, LV_ALIGN_CENTER, 0, 30);
 
     s_salary_rate_lbl = lv_label_create(s_scr);
+    lv_label_set_text(s_salary_rate_lbl, "Hold button 2s to reset");
     lv_obj_set_style_text_font(s_salary_rate_lbl, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(s_salary_rate_lbl, C_MUTED, 0);
     lv_obj_align(s_salary_rate_lbl, LV_ALIGN_BOTTOM_MID, 0, -28);
@@ -939,19 +986,17 @@ static void salary_counter_render(void)
     if (!s_salary_earn_lbl) {
         return;
     }
-    if (!salary_counter_running()) {
-        salary_counter_start();
-    }
     int64_t c = salary_counter_earned_cents();
-    lv_label_set_text_fmt(s_salary_earn_lbl, "%lld.%02lld", (long long)(c / 100), (long long)(c % 100));
+    /* Three decimals of a yuan (1/1000 CNY = 0.1 cent). */
+    int64_t milli = c * 10;            /* cents -> thousandths */
+    lv_label_set_text_fmt(s_salary_earn_lbl, "%lld.%03lld",
+                          (long long)(milli / 1000), (long long)(milli % 1000));
 
     double sec = salary_counter_elapsed_sec();
     int h = (int)(sec / 3600.0);
     int mi = (int)((sec - h * 3600.0) / 60.0);
     int s = (int)(sec - h * 3600.0 - mi * 60.0);
     lv_label_set_text_fmt(s_salary_time_lbl, "%02d:%02d:%02d", h, mi, s);
-
-    lv_label_set_text_fmt(s_salary_rate_lbl, "Hold button to reset");
 }
 
 /* settings */
@@ -962,7 +1007,7 @@ static void pick_settings(int i)
     } else if (i == 1) {
         nav_push(P_WIFI);
     } else if (i == 2) {
-        open_editor("LCD brightness", "%", display_get_brightness(), 0, 100, 5, lcd_bright_change);
+        open_editor("LCD brightness", "%", display_get_brightness(), 0, 100, 5, 0, lcd_bright_change);
     } else if (i == 3) {
         nav_push(P_RATCHET);
     } else if (i == 4) {
@@ -1040,14 +1085,14 @@ static void pick_motor(int i)
     float p, iv, d, r;
     motor_get_pid_velocity(&p, &iv, &d, &r);
     switch (i) {
-    case 0: open_editor("Drive voltage", "V", (int)(motor_get_voltage_limit() * 10), 5, 33, 1, mt_voltage); break;
-    case 1: open_editor("Current limit", "A", (int)(motor_get_current_limit() * 100), 5, 100, 5, mt_current); break;
-    case 2: open_editor("Velocity limit", "rad/s", (int)motor_get_velocity_limit(), 5, 200, 5, mt_vellim); break;
-    case 3: open_editor("Angle P gain", "x0.1", (int)(motor_get_kp_angle() * 10), 1, 200, 1, mt_kp); break;
-    case 4: open_editor("Vel PID P", "x0.001", (int)(p * 1000), 1, 2000, 5, mt_pid_p); break;
-    case 5: open_editor("Vel PID I", "x0.01", (int)(iv * 100), 0, 2000, 5, mt_pid_i); break;
-    case 6: open_editor("Vel PID D", "x1e-5", (int)(d * 100000), 0, 5000, 5, mt_pid_d); break;
-    case 7: open_editor("Vel ramp", "", (int)r, 10, 1000, 10, mt_ramp); break;
+    case 0: open_editor("Drive voltage", "V", (int)(motor_get_voltage_limit() * 10), 5, 33, 1, 1, mt_voltage); break;
+    case 1: open_editor("Current limit", "A", (int)(motor_get_current_limit() * 100), 5, 100, 5, 2, mt_current); break;
+    case 2: open_editor("Velocity limit", "rad/s", (int)motor_get_velocity_limit(), 5, 200, 5, 0, mt_vellim); break;
+    case 3: open_editor("Angle P gain", "x0.1", (int)(motor_get_kp_angle() * 10), 1, 200, 1, 1, mt_kp); break;
+    case 4: open_editor("Vel PID P", "x0.001", (int)(p * 1000), 1, 2000, 5, 0, mt_pid_p); break;
+    case 5: open_editor("Vel PID I", "x0.01", (int)(iv * 100), 0, 2000, 5, 0, mt_pid_i); break;
+    case 6: open_editor("Vel PID D", "x1e-5", (int)(d * 100000), 0, 5000, 5, 0, mt_pid_d); break;
+    case 7: open_editor("Vel ramp", "", (int)r, 10, 1000, 10, 0, mt_ramp); break;
     }
 }
 
@@ -1103,12 +1148,12 @@ static void pick_led(int i)
     if (i == 0) {
         nav_push(P_LED_MODE);
     } else if (i == 1) {
-        open_editor("LED brightness", "%", led_ring_get_brightness(), 0, 100, 5, led_bright_change);
+        open_editor("LED brightness", "%", led_ring_get_brightness(), 0, 100, 5, 0, led_bright_change);
     } else if (i == 2) {
         uint8_t r, g, b;
         led_ring_get_color(&r, &g, &b);
         /* approximate current hue from stored color; default 0 */
-        open_editor("LED hue", "deg", 0, 0, 359, 10, led_hue_change);
+        open_editor("LED hue", "deg", 0, 0, 359, 10, 0, led_hue_change);
         (void)r; (void)g; (void)b;
     }
 }
@@ -1153,9 +1198,9 @@ static void ratchet_k_change(int v)
 static void pick_ratchet(int i)
 {
     if (i == 0) {
-        open_editor("Detents", "n", motor_get_detents(), 2, 60, 1, ratchet_detents_change);
+        open_editor("Detents", "n", motor_get_detents(), 2, 60, 1, 0, ratchet_detents_change);
     } else {
-        open_editor("Stiffness", "x0.1", (int)(motor_get_stiffness() * 10), 5, 150, 1, ratchet_k_change);
+        open_editor("Stiffness", "x0.1", (int)(motor_get_stiffness() * 10), 5, 150, 1, 1, ratchet_k_change);
     }
 }
 
@@ -1310,6 +1355,10 @@ static void page_build(page_t p)
     s_balance_sub = NULL;
     s_home_time = NULL;
     s_home_batt_arc = NULL;
+    s_salary_earn_lbl = NULL;
+    s_salary_time_lbl = NULL;
+    s_salary_rate_lbl = NULL;
+    s_salary_params_lbl = NULL;
 
     switch (p) {
     case P_HOME:        build_home(); break;
@@ -1456,8 +1505,15 @@ static void on_press(void)
 static void on_back_hold(void)
 {
     if (s_page == P_SALARY_COUNTER) {
+        /* Reset the running total and return to the parameter settings page. */
         salary_counter_reset();
-        salary_counter_render();
+        if (s_nav_depth > 0 && s_nav[s_nav_depth - 1] == P_SALARY_COUNTER) {
+            s_nav[s_nav_depth - 1] = P_SALARY;
+            page_build(P_SALARY);
+            transition_to(s_scr, false);
+        } else {
+            nav_push(P_SALARY);
+        }
         return;
     }
     on_back();

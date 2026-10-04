@@ -151,6 +151,18 @@ esp_err_t display_init(void)
     s_brightness = settings_get_int(SET_LCD_BRIGHTNESS, 80);
     display_set_brightness(s_brightness);
 
+    /* Paint the very first screen so the boot/calibration period is not the
+     * default white. Match the saved theme: dark -> black, light -> white. */
+    if (lvgl_port_lock(portMAX_DELAY)) {
+        int theme = settings_get_int(SET_THEME, 0);
+        lv_obj_t *scr = lv_screen_active();
+        if (scr) {
+            lv_obj_set_style_bg_color(scr, theme == 1 ? lv_color_white() : lv_color_black(), 0);
+            lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+        }
+        lvgl_port_unlock();
+    }
+
     ESP_LOGI(TAG, "display ready %dx%d", BOARD_LCD_H_RES, BOARD_LCD_V_RES);
     return ESP_OK;
 }

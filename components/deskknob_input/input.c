@@ -60,7 +60,8 @@ static int32_t s_trigger_threshold = 1000000;
 static bool s_pressed;
 
 #define DEBOUNCE_MS 500
-#define REQUIRED_COUNT 3
+#define BUTTON_HOLD_MS 1500
+#define REQUIRED_COUNT 2
 #define SAMPLE_PERIOD_MS 50
 
 static void calculate_baseline(void)
@@ -80,8 +81,10 @@ static void calculate_baseline(void)
     }
     if (count > 0) {
         s_baseline = (int32_t)(sum / count);
-        s_trigger_threshold = (int32_t)(s_baseline * 1.022f);
-        s_noise_threshold = (int32_t)(s_baseline * 0.5f);
+        /* Press needs only a small rise over the idle baseline so a light
+         * touch registers. Release floor is close to the baseline. */
+        s_trigger_threshold = (int32_t)(s_baseline * 1.004f);
+        s_noise_threshold = (int32_t)(s_baseline * 0.97f);
         ESP_LOGI(TAG, "baseline=%ld trigger=%ld noise=%ld",
                  (long)s_baseline, (long)s_trigger_threshold, (long)s_noise_threshold);
     } else {
@@ -100,7 +103,16 @@ static void emit(input_event_t type, int32_t value)
 static void pressure_task(void *arg)
 {
     (void)arg;
+
+    /* Let the film/ADC settle after the baseline calibration before we accept
+     * any press; also require an idle (released) sample before the first
+     * press so a boot-time transient cannot fire a phantom PRESS. */
+    vTaskDelay(pdMS_TO_TICKS(1500));
+
+    bool armed = false;          /* true once we have seen a released sample */
     int press_count = 0;
+    bool pressed = false;
+
     for (;;) {
         int32_t v = 0;
         if (hx710_read(&v) != ESP_OK) {
@@ -111,27 +123,32 @@ static void pressure_task(void *arg)
         uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
         s_last_ms = now;
 
-        if (v < s_noise_threshold) {
-            press_count = 0;
-            s_pressed = false;
-            vTaskDelay(pdMS_TO_TICKS(SAMPLE_PERIOD_MS));
-            continue;
-        }
+        bool is_press = (v > s_trigger_threshold);
+        bool is_idle = (v < s_noise_threshold);
 
-        if (v > s_trigger_threshold) {
-            press_count++;
-            if (press_count >= REQUIRED_COUNT && (now - s_last_press_ms) > DEBOUNCE_MS) {
-                s_last_press_ms = now;
-                s_pressed = true;
-                emit(INPUT_EVT_PRESS, v);
+        if (is_idle) {
+            /* Released: re-arm and start a fresh debounce window. */
+            armed = true;
+            pressed = false;
+            press_count = 0;
+        } else if (is_press) {
+            if (armed && !pressed) {
+                press_count++;
+                if (press_count >= REQUIRED_COUNT) {
+                    pressed = true;
+                    armed = false;              /* one PRESS per press-down */
+                    s_last_press_ms = now;
+                    s_pressed = true;
+                    emit(INPUT_EVT_PRESS, v);
+                }
             }
         } else {
-            press_count = 0;
+            /* Between thresholds: not clearly pressed or released. */
+            if (!pressed) {
+                press_count = 0;
+            }
         }
 
-        if (s_pressed && (now - s_last_press_ms) > DEBOUNCE_MS) {
-            s_pressed = false;
-        }
         vTaskDelay(pdMS_TO_TICKS(SAMPLE_PERIOD_MS));
     }
 }
@@ -141,50 +158,35 @@ static void pressure_task(void *arg)
 static void button_task(void *arg)
 {
     (void)arg;
-    bool sent_hold = false;
     for (;;) {
-        bool low = (gpio_get_level(BOARD_PIN_BUTTON) == 0);
-        if (low && !sent_hold) {
-            int held = 0;
-            while (gpio_get_level(BOARD_PIN_BUTTON) == 0 && held < 1200) {
-                vTaskDelay(pdMS_TO_TICKS(20));
-                held += 20;
-            }
-            if (held >= 1000) {
-                input_msg_t m = {.type = INPUT_EVT_BACK_HOLD, .value = held};
+        /* Wait for press (active low). */
+        if (gpio_get_level(BOARD_PIN_BUTTON) != 0) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+        /* Measure the real held duration with the monotonic clock so the
+         * threshold is not skewed by scheduling delays. */
+        int64_t t0 = esp_timer_get_time();
+        bool hold_sent = false;
+        while (gpio_get_level(BOARD_PIN_BUTTON) == 0) {
+            int64_t held_ms = (esp_timer_get_time() - t0) / 1000;
+            if (!hold_sent && held_ms >= BUTTON_HOLD_MS) {
+                input_msg_t m = {.type = INPUT_EVT_BACK_HOLD, .value = (int32_t)held_ms};
                 xQueueSend(s_queue, &m, 0);
-                sent_hold = true;
+                hold_sent = true;
             }
-            /* wait for release to avoid repeats */
-            while (gpio_get_level(BOARD_PIN_BUTTON) == 0) {
-                vTaskDelay(pdMS_TO_TICKS(20));
-            }
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
-        if (!low) {
-            sent_hold = false;
+        int64_t held_ms = (esp_timer_get_time() - t0) / 1000;
+        /* Short press -> BACK (only if the long-press was not already sent). */
+        if (!hold_sent && held_ms >= 40) {
+            input_msg_t m = {.type = INPUT_EVT_BACK, .value = (int32_t)held_ms};
+            xQueueSend(s_queue, &m, 0);
         }
-        vTaskDelay(pdMS_TO_TICKS(20));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
-static void IRAM_ATTR button_isr(void *arg)
-{
-    static volatile int64_t last_isr_us;
-    (void)arg;
-    int64_t now = esp_timer_get_time();
-    if (now - last_isr_us < (DEBOUNCE_MS * 1000)) {
-        return;
-    }
-    last_isr_us = now;
-    BaseType_t hp = pdFALSE;
-    input_msg_t msg = {.type = INPUT_EVT_BACK, .value = 0};
-    if (s_queue) {
-        xQueueSendFromISR(s_queue, &msg, &hp);
-    }
-    if (hp) {
-        portYIELD_FROM_ISR();
-    }
-}
 
 esp_err_t input_init(void)
 {
@@ -209,16 +211,14 @@ esp_err_t input_init(void)
     };
     ESP_ERROR_CHECK(gpio_config(&hx_in));
 
-    /* Button */
+    /* Button (polled in button_task; no ISR) */
     gpio_config_t btn = {
         .pin_bit_mask = (1ULL << BOARD_PIN_BUTTON),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
-        .intr_type = GPIO_INTR_NEGEDGE,
+        .intr_type = GPIO_INTR_DISABLE,
     };
     ESP_ERROR_CHECK(gpio_config(&btn));
-    gpio_install_isr_service(0);
-    gpio_isr_handler_add(BOARD_PIN_BUTTON, button_isr, NULL);
 
     calculate_baseline();
 

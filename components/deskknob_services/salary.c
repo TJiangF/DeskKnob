@@ -66,6 +66,7 @@ void salary_counter_stop(void)
 
 void salary_counter_reset(void)
 {
+    /* Stop and clear; the counter stays stopped until started again. */
     s_running = false;
     s_start_us = 0;
 }
